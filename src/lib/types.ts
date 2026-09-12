@@ -28,13 +28,73 @@ export interface Producto {
 
 export interface Venta {
   id?: number;
-  productoId: number;
+  productoId: number | null;
   nombreProducto: string;
   cantidad: number;
   precioUnitario: number;
   costoUnitario: number;
   fecha: number;
   cliente: string;
+  metodoPago: MetodoPago;
+  externa?: boolean;
+  referencia?: string;
+}
+
+export interface Presupuesto {
+  id?: number;
+  categoria: CategoriaGasto;
+  montoMensual: number;
+}
+
+export interface Factura {
+  id?: number;
+  tipo: "emitida" | "recibida";
+  letra: "A" | "B" | "C";
+  numero: string;
+  fecha: number;
+  cliente?: string;
+  cuit?: string;
+  condicion: string;
+  monto: number;
+  detalle: string;
+  ventaId?: number | null;
+  gastoId?: number | null;
+}
+
+export interface InflacionMes {
+  id?: number;
+  mesKey: string; // "yyyy-mm"
+  variacionPct: number;
+}
+
+export interface FiscalConfig {
+  razonSocial: string;
+  cuit: string;
+  condicionIva: "monotributo" | "respin" | "exento";
+  monotributoCategoria: string;
+  ivaPct: number;
+  ptoVenta: string;
+  direccion: string;
+  localidad: string;
+}
+
+export interface GatewayConfig {
+  mpToken: string;
+  mpEnabled: boolean;
+  stripeSecret: string;
+  stripeEnabled: boolean;
+  paypalClientId: string;
+  paypalSecret: string;
+  paypalEnabled: boolean;
+}
+
+export interface TransaccionExterna {
+  externalId: string;
+  fecha: number;
+  monto: number;
+  moneda: string;
+  concepto: string;
+  cliente?: string;
   metodoPago: MetodoPago;
 }
 

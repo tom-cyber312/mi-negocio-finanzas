@@ -2,17 +2,18 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Plus, Search, ShoppingCart, Trash2 } from "lucide-react";
-import { db, eliminarVenta, registrarVenta } from "@/lib/db";
+import { FileDown, Plus, Search, ShoppingCart, Trash2 } from "lucide-react";
+import { db, eliminarVenta, registrarVenta, saveFactura } from "@/lib/db";
 import type { Venta } from "@/lib/types";
 import { METODOS_PAGO } from "@/lib/types";
-import {
-  fmtDateTime,
-  fmtMoney,
-  MESES,
-  toTimestamp,
-} from "@/lib/format";
+import { fmtDateTime, fmtMoney, MESES, toTimestamp } from "@/lib/format";
 import { resumenMes } from "@/lib/calc";
+import {
+  getFiscalConfig,
+  incrementarContadorFactura,
+} from "@/lib/config";
+import { calcularIva, letraPara } from "@/lib/fiscal";
+import { generarFacturaPDF } from "@/lib/export";
 import {
   Badge,
   Button,
@@ -204,6 +205,35 @@ export default function VentasPage() {
   const [mesFilter, setMesFilter] = useState("todos");
   const [deleting, setDeleting] = useState<Venta | null>(null);
   const [limit, setLimit] = useState(PAGE_SIZE);
+  const [factsMsg, setFactsMsg] = useState<string | null>(null);
+  const [horaActual] = useState(() => Date.now());
+
+  const facturarVenta = async (v: Venta) => {
+    const fiscal = getFiscalConfig();
+    const letraF = letraPara(fiscal);
+    const n = incrementarContadorFactura(letraF);
+    const numero = `${(fiscal.ptoVenta || "0001").trim()}-${String(n).padStart(8, "0")}`;
+    const factura = {
+      tipo: "emitida" as const,
+      letra: letraF,
+      numero,
+      fecha: horaActual,
+      cliente: v.cliente || "Consumidor final",
+      cuit: "",
+      condicion: fiscal.condicionIva,
+      monto: v.cantidad * v.precioUnitario,
+      detalle: `${v.nombreProducto} × ${v.cantidad}`,
+      ventaId: v.id,
+    };
+    await saveFactura(factura);
+    generarFacturaPDF(factura, fiscal);
+    setFactsMsg(
+      `Factura ${letraF} ${numero} generada` +
+        (letraF === "A" ? ` · IVA incluido: ${fmtMoney(calcularIva(factura.monto, fiscal.ivaPct, true))}` : "") +
+        ". Se descargó el PDF."
+    );
+    setTimeout(() => setFactsMsg(null), 5000);
+  };
 
   const monthOptions = useMemo(() => {
     const opts: { key: string; label: string }[] = [];
@@ -385,7 +415,16 @@ export default function VentasPage() {
                         <Badge tone="zinc">{v.metodoPago}</Badge>
                       </td>
                       <td className="px-3 py-3">
-                        <div className="flex justify-end">
+                        <div className="flex justify-end gap-1">
+                          {!v.externa && (
+                            <button
+                              onClick={() => facturarVenta(v)}
+                              className="rounded-lg p-1.5 text-zinc-500 hover:bg-emerald-50 hover:text-emerald-600 dark:text-zinc-400 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+                              title="Generar factura electrónica (PDF)"
+                            >
+                              <FileDown className="h-4 w-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => setDeleting(v)}
                             className="rounded-lg p-1.5 text-zinc-500 hover:bg-rose-50 hover:text-rose-600 dark:text-zinc-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
@@ -410,6 +449,12 @@ export default function VentasPage() {
           </>
         )}
       </Card>
+
+      {factsMsg && (
+        <p className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+          {factsMsg}
+        </p>
+      )}
 
       <Modal
         open={modalOpen}

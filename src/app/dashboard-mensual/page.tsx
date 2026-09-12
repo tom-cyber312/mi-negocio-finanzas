@@ -17,6 +17,7 @@ import {
   pctVariacion,
   resumenMes,
 } from "@/lib/calc";
+import { ajustarValor, gastosPorPresupuesto, mesKeyDeFecha } from "@/lib/fiscal";
 import { exportarExcelMensual, exportarPDFMensual } from "@/lib/export";
 import {
   Badge,
@@ -26,9 +27,11 @@ import {
   Select,
   Skeleton,
   StatCard,
+  Tip,
 } from "@/components/ui";
 import { LineEvolucion, PieGastos } from "@/components/charts";
-import { CATEGORIAS_GASTO_COLORS } from "@/lib/types";
+import { CATEGORIAS_GASTO, CATEGORIAS_GASTO_COLORS } from "@/lib/types";
+import type { Presupuesto } from "@/lib/types";
 
 export default function DashboardMensualPage() {
   const [sel, setSel] = useState({
@@ -36,9 +39,12 @@ export default function DashboardMensualPage() {
     month: new Date().getMonth(),
   });
   const [hasManual, setHasManual] = useState(false);
+  const [ajustado, setAjustado] = useState(false);
 
   const ventas = useLiveQuery(() => db.ventas.toArray(), []);
   const gastos = useLiveQuery(() => db.gastos.toArray(), []);
+  const presupuestos = useLiveQuery(() => db.presupuestos.toArray(), []);
+  const inflacion = useLiveQuery(() => db.inflacion.toArray(), []);
 
   const { year, month } = sel;
 
@@ -58,7 +64,8 @@ export default function DashboardMensualPage() {
     const diario = evolucionDiaria(ventas, gastos, year, month);
     const acumulado = acumuladoDiario(diario);
     const categorias = egresosPorCategoria(mes.gastos);
-    return { mes, mesPrev, diario, acumulado, categorias };
+    const gastadoPorCat = gastosPorPresupuesto(gastos, year, month);
+    return { mes, mesPrev, diario, acumulado, categorias, gastadoPorCat };
   }, [ventas, gastos, year, month]);
 
   const cambiarMes = (y: number, m: number) => {
@@ -67,11 +74,20 @@ export default function DashboardMensualPage() {
   };
 
   const selectedLabel = `${MESES[month]} ${year}`;
+  const curKey = mesKeyDeFecha(new Date(year, month, 1).getTime());
+  const prevDate = new Date(year, month - 1, 1);
+  const prevKey = mesKeyDeFecha(prevDate.getTime());
+  const prevIngresos = ajustado
+    ? ajustarValor(data?.mesPrev.ingresos ?? 0, inflacion || [], prevKey, curKey)
+    : data?.mesPrev.ingresos ?? 0;
+  const prevEgresos = ajustado
+    ? ajustarValor(data?.mesPrev.egresos ?? 0, inflacion || [], prevKey, curKey)
+    : data?.mesPrev.egresos ?? 0;
   const pctIngresos = data
-    ? pctVariacion(data.mes.ingresos, data.mesPrev.ingresos)
+    ? pctVariacion(data.mes.ingresos, prevIngresos)
     : null;
   const pctEgresos = data
-    ? pctVariacion(data.mes.egresos, data.mesPrev.egresos)
+    ? pctVariacion(data.mes.egresos, prevEgresos)
     : null;
 
   return (
@@ -87,6 +103,16 @@ export default function DashboardMensualPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={ajustado}
+              onChange={(e) => setAjustado(e.target.checked)}
+              className="h-4 w-4 rounded accent-emerald-600"
+            />
+            Ajustado por inflación
+            <Tip text="Lleva los valores del mes anterior a moneda de hoy según la tabla de inflación cargada en Facturación, para comparar la venta real, no la nominal." />
+          </label>
           <Select
             className="sm:w-40"
             value={year}
@@ -164,6 +190,13 @@ export default function DashboardMensualPage() {
               sub={`${data.mes.gastos.length} gastos registrados`}
             />
           </div>
+
+          <PresupuestoInfo
+            gastadoPorCat={data.gastadoPorCat}
+            presupuestos={presupuestos || []}
+            month={month}
+            year={year}
+          />
 
           <div className="grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-2">
@@ -271,6 +304,72 @@ export default function DashboardMensualPage() {
     if (pct === null) return "Sin datos del mes anterior";
     return `${pct.toFixed(1)}% vs mes anterior`;
   }
+}
+
+function PresupuestoInfo({
+  gastadoPorCat,
+  presupuestos,
+  month,
+  year,
+}: {
+  gastadoPorCat: Map<string, number>;
+  presupuestos: Presupuesto[];
+  month: number;
+  year: number;
+}) {
+  const rows = CATEGORIAS_GASTO.map((c) => {
+    const p = presupuestos.find((x) => x.categoria === c);
+    const presupuesto = p?.montoMensual ?? 0;
+    const gastado = gastadoPorCat.get(c) ?? 0;
+    return {
+      categoria: c,
+      presupuesto,
+      gastado,
+      pct: presupuesto > 0 ? (gastado / presupuesto) * 100 : 0,
+    };
+  });
+  const conPpto = rows.filter((r) => r.presupuesto > 0);
+  if (!conPpto.length) return null;
+  const totalPpto = conPpto.reduce((s, r) => s + r.presupuesto, 0);
+  const totalGasto = conPpto.reduce((s, r) => s + r.gastado, 0);
+
+  return (
+    <Card className="mb-4">
+      <CardHeader
+        title="Presupuesto vs gastado"
+        subtitle={`${MESES[month]} ${year}`}
+        right={
+          <Badge tone={totalGasto / (totalPpto || 1) >= 1 ? "red" : totalGasto / (totalPpto || 1) > 0.8 ? "amber" : "green"}>
+            {((totalGasto / (totalPpto || 1)) * 100).toFixed(0)}% del total
+          </Badge>
+        }
+      />
+      <div className="space-y-2.5 px-5 pb-5 pt-3">
+        {conPpto.map((r) => (
+          <div key={r.categoria} className="flex items-center gap-3">
+            <span className="flex w-24 shrink-0 items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-300">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ background: CATEGORIAS_GASTO_COLORS[r.categoria as keyof typeof CATEGORIAS_GASTO_COLORS] }}
+              />
+              {r.categoria}
+            </span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-200/70 dark:bg-zinc-800">
+              <div
+                className={`h-full rounded-full ${
+                  r.pct >= 100 ? "bg-rose-500" : r.pct >= 80 ? "bg-amber-500" : "bg-emerald-500"
+                }`}
+                style={{ width: `${Math.min(r.pct, 100)}%` }}
+              />
+            </div>
+            <span className="w-32 shrink-0 text-right text-[11px] tabular-nums text-zinc-500 dark:text-zinc-400">
+              {fmtMoney(r.gastado)} / {fmtMoney(r.presupuesto)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
 }
 
 function PagosResumen({ month, year }: { month: number; year: number }) {

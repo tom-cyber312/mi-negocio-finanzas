@@ -5,23 +5,28 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarRange,
+  Download,
   LayoutDashboard,
   Lock,
   LogOut,
   Menu,
   Moon,
   Package,
+  Plug,
+  Receipt,
   Settings,
   ShoppingCart,
   Sparkles,
   Sun,
+  Target,
+  Upload,
   Wallet,
   X,
 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { Button, ConfirmDialog, Field, Input, Select } from "@/components/ui";
 import { CURRENCIES } from "@/lib/format";
-import { cargarDatosEjemplo, clearAllData } from "@/lib/db";
+import { cargarDatosEjemplo, clearAllData, exportarBackup, importarBackup } from "@/lib/db";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard General", icon: LayoutDashboard },
@@ -29,6 +34,9 @@ const NAV = [
   { href: "/productos", label: "Productos", icon: Package },
   { href: "/ventas", label: "Ventas", icon: ShoppingCart },
   { href: "/gastos", label: "Gastos", icon: Wallet },
+  { href: "/presupuestos", label: "Presupuestos", icon: Target },
+  { href: "/facturacion", label: "Facturación", icon: Receipt },
+  { href: "/integraciones", label: "Integraciones", icon: Plug },
   { href: "/recomendaciones", label: "Recomendaciones", icon: Sparkles },
 ];
 
@@ -38,6 +46,9 @@ const TITLES: Record<string, string> = {
   "/productos": "Productos e Inventario",
   "/ventas": "Ventas e Ingresos",
   "/gastos": "Gastos / Egresos",
+  "/presupuestos": "Presupuestos y control de gasto",
+  "/facturacion": "Facturación y cumplimiento fiscal",
+  "/integraciones": "Integraciones externas",
   "/recomendaciones": "Recomendaciones inteligentes",
 };
 
@@ -245,12 +256,40 @@ function SettingsModal({
               >
                 Cargar datos de ejemplo
               </Button>
+              <Button variant="white" onClick={exportarBackup} title="Descargar respaldo JSON de la base local">
+                <Download className="h-4 w-4" /> Exportar respaldo
+              </Button>
+              <label
+                className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-3.5 py-2 text-sm font-medium text-zinc-800 ring-1 ring-zinc-200 transition-colors hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700 dark:hover:bg-zinc-800"
+              >
+                <Upload className="h-4 w-4" />
+                Importar respaldo
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      await importarBackup(file);
+                      setMsg("Respaldo importado correctamente.");
+                      onClose();
+                      window.location.reload();
+                    } catch {
+                      setErr("No se pudo importar el respaldo. Revisá el archivo.");
+                    }
+                  }}
+                />
+              </label>
               <Button variant="white" onClick={() => setConfirmWipe(true)}>
                 Borrar todos los datos
               </Button>
             </div>
             <p className="mt-2 text-[11px] text-zinc-400">
-              Los datos se guardan localmente en este navegador (IndexedDB).
+              Los datos se guardan localmente en este navegador (IndexedDB). El
+              respaldo te permite exportarlos y restaurarlos en cualquier
+              dispositivo.
             </p>
           </section>
 

@@ -25,7 +25,9 @@ import {
   topProductos,
 } from "@/lib/calc";
 import { generarRecomendaciones } from "@/lib/recommendations";
-import { Card, CardHeader, Skeleton, StatCard } from "@/components/ui";
+import { ajustarValor } from "@/lib/fiscal";
+import { getFiscalConfig, getLimitesMonotributo } from "@/lib/config";
+import { Card, CardHeader, Skeleton, StatCard, Tip } from "@/components/ui";
 import {
   BarIngresosEgresos,
   HorizontalBestScale,
@@ -42,10 +44,13 @@ const PERIODOS: { key: Periodo; label: string }[] = [
 
 export default function DashboardPage() {
   const [periodo, setPeriodo] = useState<Periodo>("todo");
+  const [ajustado, setAjustado] = useState(false);
 
   const productos = useLiveQuery(() => db.productos.toArray(), []);
   const ventas = useLiveQuery(() => db.ventas.toArray(), []);
   const gastos = useLiveQuery(() => db.gastos.toArray(), []);
+  const presupuestos = useLiveQuery(() => db.presupuestos.toArray(), []);
+  const inflacion = useLiveQuery(() => db.inflacion.toArray(), []);
 
   const resumen = useMemo(() => {
     if (!ventas || !gastos || !productos) return null;
@@ -60,12 +65,18 @@ export default function DashboardPage() {
 
   const porMes = useMemo(() => {
     if (!ventas || !gastos) return [];
-    return seriePorMes(ventas, gastos, 12).map((m) => ({
+    const serie = seriePorMes(ventas, gastos, 12);
+    const ultimoKey = serie.length ? serie[serie.length - 1].key : "";
+    return serie.map((m) => ({
       short: m.short,
-      ingresos: m.ingresos,
-      egresos: m.egresos,
+      ingresos: ajustado
+        ? ajustarValor(m.ingresos, inflacion || [], m.key, ultimoKey)
+        : m.ingresos,
+      egresos: ajustado
+        ? ajustarValor(m.egresos, inflacion || [], m.key, ultimoKey)
+        : m.egresos,
     }));
-  }, [ventas, gastos]);
+  }, [ventas, gastos, ajustado, inflacion]);
 
   const porCategoria = useMemo(() => {
     if (!gastos) return [];
@@ -94,8 +105,17 @@ export default function DashboardPage() {
 
   const recomendaciones = useMemo(() => {
     if (!productos || !ventas || !gastos) return [];
-    return generarRecomendaciones({ productos, ventas, gastos });
-  }, [productos, ventas, gastos]);
+    return generarRecomendaciones({
+      productos,
+      ventas,
+      gastos,
+      presupuestos: presupuestos || [],
+      fiscal: getFiscalConfig(),
+      limitesMonotributo: getLimitesMonotributo().length
+        ? getLimitesMonotributo()
+        : undefined,
+    });
+  }, [productos, ventas, gastos, presupuestos]);
 
   return (
     <div>
@@ -109,20 +129,31 @@ export default function DashboardPage() {
             rentabilidad.
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5 rounded-xl bg-zinc-200/60 p-1 dark:bg-zinc-800/70">
-          {PERIODOS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPeriodo(p.key)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                periodo === p.key
-                  ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
-                  : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={ajustado}
+              onChange={(e) => setAjustado(e.target.checked)}
+              className="h-4 w-4 rounded accent-emerald-600"
+            />
+            Ajustado por inflación
+          </label>
+          <div className="flex flex-wrap gap-1.5 rounded-xl bg-zinc-200/60 p-1 dark:bg-zinc-800/70">
+            {PERIODOS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPeriodo(p.key)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  periodo === p.key
+                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
+                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -150,7 +181,12 @@ export default function DashboardPage() {
               sub={`Publicidad: ${fmtMoney(resumen.resumen.gastoPublicidad)}`}
             />
             <StatCard
-              label="Utilidad neta"
+              label={
+                <span className="inline-flex items-center gap-1">
+                  Utilidad neta
+                  <Tip text="Ingresos menos todos los egresos del período. Es lo que queda en caja." />
+                </span>
+              }
               value={fmtMoney(resumen.resumen.utilidadNeta)}
               tone={resumen.resumen.utilidadNeta >= 0 ? "positive" : "negative"}
               icon={<TrendingUp className="h-4 w-4" />}
@@ -195,7 +231,12 @@ export default function DashboardPage() {
               )}
             </div>
             <StatCard
-              label="Margen promedio"
+              label={
+                <span className="inline-flex items-center gap-1">
+                  Margen promedio
+                  <Tip text="Utilidad bruta sobre ingresos. Da el porcentaje que queda luego de pagar la mercadería, antes de los gastos fijos." />
+                </span>
+              }
               value={`${(resumen.resumen.margenPromedio * 100).toFixed(1)}%`}
               tone="info"
               icon={<Percent className="h-4 w-4" />}

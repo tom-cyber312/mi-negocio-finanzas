@@ -8,6 +8,7 @@ import type { CategoriaGasto, Gasto } from "@/lib/types";
 import { CATEGORIAS_GASTO, CATEGORIAS_GASTO_COLORS } from "@/lib/types";
 import { fmtDate, fmtMoney, MESES } from "@/lib/format";
 import { resumenMes } from "@/lib/calc";
+import { gastosPorPresupuesto } from "@/lib/fiscal";
 import {
   Badge,
   Button,
@@ -159,6 +160,26 @@ export default function GastosPage() {
   const [catFilter, setCatFilter] = useState("Todas");
   const [mesFilter, setMesFilter] = useState("todos");
   const [copiedMsg, setCopiedMsg] = useState<string | null>(null);
+  const presupuestos = useLiveQuery(() => db.presupuestos.toArray(), []);
+
+  const alertasPresupuesto = useMemo(() => {
+    if (!gastos || !presupuestos || !presupuestos.length) return [];
+    const now = new Date();
+    const gastado = gastosPorPresupuesto(gastos, now.getFullYear(), now.getMonth());
+    const out: {
+      categoria: string;
+      presupuesto: number;
+      gastado: number;
+      pct: number;
+    }[] = [];
+    for (const p of presupuestos) {
+      if (p.montoMensual <= 0) continue;
+      const gastadoCat = gastado.get(p.categoria) || 0;
+      const pct = (gastadoCat / p.montoMensual) * 100;
+      if (pct >= 80) out.push({ categoria: p.categoria, presupuesto: p.montoMensual, gastado: gastadoCat, pct });
+    }
+    return out.sort((a, b) => b.pct - a.pct);
+  }, [gastos, presupuestos]);
 
   const monthOptions = useMemo(() => {
     const opts: { key: string; label: string; year: number; month: number }[] = [];
@@ -294,6 +315,41 @@ export default function GastosPage() {
             tone="info"
             sub="Se marcan para copiar en meses nuevos"
           />
+        </div>
+      )}
+
+      {alertasPresupuesto.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {alertasPresupuesto.map((a) => (
+            <div
+              key={a.categoria}
+              className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-5 py-3 ${
+                a.pct >= 100
+                  ? "border-rose-500/30 bg-rose-500/5"
+                  : "border-amber-500/30 bg-amber-500/5"
+              }`}
+            >
+              <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                {a.pct >= 100 ? (
+                  <span className="font-semibold text-rose-600 dark:text-rose-400">
+                    Presupuesto superado
+                  </span>
+                ) : (
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                    Presupuesto en riesgo
+                  </span>
+                )}{" "}
+                · {a.categoria}: gastado {fmtMoney(a.gastado)} de{" "}
+                {fmtMoney(a.presupuesto)} ({a.pct.toFixed(0)}%)
+              </p>
+              <a
+                href="/presupuestos"
+                className="text-xs font-medium text-emerald-600 hover:underline dark:text-emerald-400"
+              >
+                Ver presupuestos →
+              </a>
+            </div>
+          ))}
         </div>
       )}
 

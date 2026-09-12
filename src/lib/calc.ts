@@ -269,6 +269,7 @@ export function topProductos(
   for (const p of productos) precios.set(p.id as number, p);
 
   for (const v of ventas) {
+    if (v.productoId == null) continue;
     let t = map.get(v.productoId);
     if (!t) {
       const p = precios.get(v.productoId);
@@ -298,7 +299,7 @@ export function diasSinVender(
 ): number {
   let last = 0;
   for (const v of ventas) {
-    if (v.productoId === productoId && v.fecha > last) last = v.fecha;
+    if (v.productoId != null && v.productoId === productoId && v.fecha > last) last = v.fecha;
   }
   if (!last) return Infinity;
   return Math.floor((now - last) / DAY_MS);

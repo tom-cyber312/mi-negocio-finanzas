@@ -1,8 +1,9 @@
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import type { Gasto, Producto, Venta } from "./types";
+import type { Factura, FiscalConfig, Gasto, Producto, Venta } from "./types";
 import { CURRENCIES, currencyCode, fmtDate, fmtDateTime, MESES } from "./format";
+import { calcularIva, condicionTitulo } from "./fiscal";
 
 function money(n: number): string {
   const c = CURRENCIES.find((x) => x.code === currencyCode());
@@ -185,4 +186,50 @@ autoTable(doc, {
   }
 
   doc.save(`reporte-${MESES[monthIdx].toLowerCase()}-${year}.pdf`);
+}
+
+export function generarFacturaPDF(f: Factura, fiscal: FiscalConfig) {
+  const doc = new jsPDF();
+  const iva = f.letra === "A" ? calcularIva(f.monto, fiscal.ivaPct, true) : 0;
+  const neto = f.monto - iva;
+
+  doc.setFontSize(14);
+  doc.text("FACTURA", 14, 16);
+  doc.setFontSize(9);
+  doc.text(`Letra ${f.letra} — N° ${f.numero}`, 14, 22);
+  doc.text(`Fecha: ${fmtDate(f.fecha)}`, 14, 27);
+  doc.text(`Condición IVA: ${condicionTitulo(fiscal.condicionIva)}`, 14, 32);
+
+  doc.setFontSize(10);
+  doc.text("Datos del emisor", 14, 42);
+  doc.setFontSize(9);
+  doc.text(fiscal.razonSocial || "Mi Negocio", 14, 47);
+  doc.text(`CUIT: ${fiscal.cuit || "—"}`, 14, 52);
+  doc.text(`${fiscal.direccion || ""} ${fiscal.localidad || ""}`.trim(), 14, 57);
+  doc.text(`Punto de venta: ${fiscal.ptoVenta || "0001"}`, 14, 62);
+
+  doc.setFontSize(10);
+  doc.text("Datos del cliente", 14, 72);
+  doc.setFontSize(9);
+  doc.text(f.cliente || "Consumidor final", 14, 77);
+  doc.text(`CUIT: ${f.cuit || "—"}`, 14, 82);
+
+  autoTable(doc, {
+    startY: 90,
+    head: [["Detalle", "Importe"]],
+    body: [
+      ["Subtotal (neto)", money(neto)],
+      ...(f.letra === "A" ? [["IVA", money(iva)]] : []),
+      ["Total", money(f.monto)],
+    ],
+    theme: "grid",
+    headStyles: { fillColor: [16, 185, 129] },
+  });
+
+  doc.setFontSize(9);
+  let y = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 120;
+  y += 8;
+  doc.text(f.detalle, 14, y);
+
+  doc.save(`factura-${f.letra}-${f.numero.replace(/\s+/g, "-")}.pdf`);
 }

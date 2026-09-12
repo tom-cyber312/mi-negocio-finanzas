@@ -1,7 +1,7 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useEffect } from "react";
-import { X } from "lucide-react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { HelpCircle, X } from "lucide-react";
 
 export function Card({
   children,
@@ -52,7 +52,7 @@ export function StatCard({
   icon,
   tone = "default",
 }: {
-  label: string;
+  label: ReactNode;
   value: ReactNode;
   sub?: ReactNode;
   icon?: ReactNode;
@@ -342,4 +342,37 @@ export function formToEvent(
 export function numberValue(v: string): number {
   const n = parseFloat(String(v).replace(/,/g, "."));
   return isNaN(n) ? 0 : n;
+}
+
+export function Tip({
+  text,
+  className = "",
+}: {
+  text: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className={`relative inline-flex ${className}`}>
+      <button
+        type="button"
+        aria-label="Ayuda"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+      >
+        <HelpCircle className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <>
+          <span
+            className="fixed inset-0 z-40"
+            onClick={() => setOpen(false)}
+          />
+          <span className="absolute left-0 top-5 z-50 w-56 max-w-[calc(100vw-2rem)] rounded-lg border border-zinc-200 bg-white p-2.5 text-[11px] leading-snug text-zinc-600 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+            {text}
+          </span>
+        </>
+      )}
+    </span>
+  );
 }

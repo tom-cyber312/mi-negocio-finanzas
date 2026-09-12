@@ -1,4 +1,4 @@
-import type { Gasto, Producto, Recomendacion, Venta } from "./types";
+import type { FiscalConfig, Gasto, Presupuesto, Producto, Recomendacion, Venta } from "./types";
 import {
   diasSinVender,
   isStockBajo,
@@ -8,18 +8,22 @@ import {
   seriePorMes,
 } from "./calc";
 import { MESES, MESES_CORTO } from "./format";
+import { estadoMonotributo } from "./fiscal";
 
 export interface DatosParaAnalisis {
   productos: Producto[];
   ventas: Venta[];
   gastos: Gasto[];
+  presupuestos?: Presupuesto[];
+  fiscal?: FiscalConfig;
+  limitesMonotributo?: { letra: string; limiteAnual: number }[];
 }
 
 export function generarRecomendaciones(
   datos: DatosParaAnalisis,
   now = new Date()
 ): Recomendacion[] {
-  const { productos, ventas, gastos } = datos;
+  const { productos, ventas, gastos, presupuestos, fiscal, limitesMonotributo } = datos;
   const out: Recomendacion[] = [];
   const nowTs = now.getTime();
 
@@ -175,6 +179,61 @@ export function generarRecomendaciones(
       accion: "Ver Productos",
       link: "/productos",
     });
+  }
+
+  // 9. Presupuesto por categoría superado o cerca (mes actual)
+  if (presupuestos && presupuestos.length) {
+    const mesPresupuestos = resumenMes(ventas, gastos, now.getFullYear(), now.getMonth());
+    const gg = new Map<string, number>();
+    for (const g of mesPresupuestos.gastos) gg.set(g.categoria, (gg.get(g.categoria) || 0) + g.monto);
+    for (const p of presupuestos) {
+      if (p.montoMensual <= 0) continue;
+      const gastado = gg.get(p.categoria) || 0;
+      const pct = (gastado / p.montoMensual) * 100;
+      if (pct >= 100) {
+        out.push({
+          id: `presupuesto-${p.categoria}`,
+          tipo: "danger",
+          titulo: `Presupuesto de ${p.categoria} superado`,
+          descripcion: `Gastaste $${gastado.toLocaleString("es-AR")} sobre un tope de $${p.montoMensual.toLocaleString("es-AR")} (${pct.toFixed(0)}%) este mes. Revisá si podés diferir gastos al mes que viene.`,
+          accion: "Ir a Presupuestos",
+          link: "/presupuestos",
+        });
+      } else if (pct >= 80) {
+        out.push({
+          id: `presupuesto-cerca-${p.categoria}`,
+          tipo: "warning",
+          titulo: `Cerca del presupuesto de ${p.categoria}`,
+          descripcion: `Llevás $${gastado.toLocaleString("es-AR")} de $${p.montoMensual.toLocaleString("es-AR")} (${pct.toFixed(0)}%). Moderá gastos en esta categoría para no excederte.`,
+          accion: "Ir a Presupuestos",
+          link: "/presupuestos",
+        });
+      }
+    }
+  }
+
+  // 10. Monotributo: límite de categoría próximo o superado
+  if (fiscal && limitesMonotributo && limitesMonotributo.length) {
+    const mono = estadoMonotributo(ventas, limitesMonotributo, fiscal, now);
+    if (mono.superado) {
+      out.push({
+        id: "monotributo-superado",
+        tipo: "danger",
+        titulo: `Monotributo: superaste el tope de la categoría ${mono.categoriaActual?.letra}`,
+        descripcion: `Facturaste $${mono.facturado12m.toLocaleString("es-AR")} en los últimos 12 meses. Recategorizate o evaluá regularizar la situación con tu contador.`,
+        accion: "Ver Facturación",
+        link: "/facturacion",
+      });
+    } else if (mono.proximoLimitePct != null && mono.proximoLimitePct > 75) {
+      out.push({
+        id: "monotributo-proximo",
+        tipo: "warning",
+        titulo: `Monotributo: cerca del límite de la categoría ${mono.categoriaActual?.letra} (${mono.usoPct.toFixed(0)}%)`,
+        descripcion: `Te quedan $${((mono.categoriaActual?.limiteAnual ?? 0) - mono.facturado12m).toLocaleString("es-AR")} de margen anual. Controlá la facturación para no pasarte.`,
+        accion: "Ver Facturación",
+        link: "/facturacion",
+      });
+    }
   }
 
   // Ordenar por severidad

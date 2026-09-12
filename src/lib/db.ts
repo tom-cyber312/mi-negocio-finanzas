@@ -1,11 +1,14 @@
 import Dexie, { type Table } from "dexie";
-import type { Gasto, Producto, Venta } from "./types";
+import type { Factura, Gasto, InflacionMes, Presupuesto, Producto, Venta } from "./types";
 import { METODOS_PAGO } from "./types";
 
 export class FinDB extends Dexie {
   productos!: Table<Producto, number>;
   ventas!: Table<Venta, number>;
   gastos!: Table<Gasto, number>;
+  presupuestos!: Table<Presupuesto, number>;
+  facturas!: Table<Factura, number>;
+  inflacion!: Table<InflacionMes, number>;
 
   constructor() {
     super("finanzasDB");
@@ -13,6 +16,14 @@ export class FinDB extends Dexie {
       productos: "++id, nombre, categoria, sku",
       ventas: "++id, productoId, fecha, metodoPago",
       gastos: "++id, fecha, categoria, recurrente",
+    });
+    this.version(2).stores({
+      productos: "++id, nombre, categoria, sku",
+      ventas: "++id, productoId, fecha, metodoPago",
+      gastos: "++id, fecha, categoria, recurrente",
+      presupuestos: "++id, categoria",
+      facturas: "++id, fecha, tipo",
+      inflacion: "++id, mesKey",
     });
   }
 }
@@ -43,26 +54,36 @@ export async function deleteProducto(id: number): Promise<void> {
 }
 
 export async function registrarVenta(
-  v: Omit<Venta, "id" | "nombreProducto" | "costoUnitario">
+  v: Omit<Venta, "id" | "nombreProducto" | "costoUnitario" | "externa" | "referencia">
 ): Promise<number> {
   return db.transaction("rw", db.productos, db.ventas, async () => {
-    const prod = await db.productos.get(v.productoId);
-    if (!prod) throw new Error("El producto no existe");
+    const prod = v.productoId != null ? await db.productos.get(v.productoId) : undefined;
+    if (v.productoId != null && !prod) throw new Error("El producto no existe");
     if (v.cantidad <= 0) throw new Error("La cantidad debe ser mayor a 0");
-    if (prod.stock < v.cantidad)
+    if (prod && prod.stock < v.cantidad)
       throw new Error(
         `Stock insuficiente: quedan ${prod.stock} unidades de ${prod.nombre}`
       );
 
     const id = await db.ventas.add({
       ...v,
-      nombreProducto: prod.nombre,
-      costoUnitario: prod.costo,
+      nombreProducto: prod ? prod.nombre : "Venta",
+      costoUnitario: prod ? prod.costo : 0,
     });
-    await db.productos.update(prod.id!, {
-      stock: prod.stock - v.cantidad,
-    });
+    if (prod && v.productoId != null) {
+      await db.productos.update(prod.id!, {
+        stock: prod.stock - v.cantidad,
+      });
+    }
     return id;
+  });
+}
+
+export async function agregarVentaExterna(v: Omit<Venta, "id" | "costoUnitario">): Promise<number> {
+  return db.ventas.add({
+    ...v,
+    costoUnitario: 0,
+    externa: true,
   });
 }
 
@@ -71,9 +92,11 @@ export async function eliminarVenta(id: number): Promise<void> {
     const v = await db.ventas.get(id);
     if (!v) return;
     await db.ventas.delete(id);
-    const prod = await db.productos.get(v.productoId);
-    if (prod) {
-      await db.productos.update(prod.id!, { stock: prod.stock + v.cantidad });
+    if (v.productoId != null) {
+      const prod = await db.productos.get(v.productoId);
+      if (prod) {
+        await db.productos.update(prod.id!, { stock: prod.stock + v.cantidad });
+      }
     }
   });
 }
@@ -96,12 +119,112 @@ export async function deleteGasto(id: number): Promise<void> {
   await db.gastos.delete(id);
 }
 
+export async function savePresupuesto(p: Presupuesto): Promise<number> {
+  const exist = await db.presupuestos.where("categoria").equals(p.categoria).first();
+  if (exist) {
+    await db.presupuestos.update(exist.id!, { montoMensual: p.montoMensual });
+    return exist.id!;
+  }
+  return db.presupuestos.add({ categoria: p.categoria, montoMensual: p.montoMensual });
+}
+
+export async function saveFactura(f: Factura): Promise<number> {
+  if (f.id) {
+    await db.facturas.update(f.id, {
+      tipo: f.tipo,
+      letra: f.letra,
+      numero: f.numero,
+      fecha: f.fecha,
+      cliente: f.cliente,
+      cuit: f.cuit,
+      condicion: f.condicion,
+      monto: f.monto,
+      detalle: f.detalle,
+      ventaId: f.ventaId,
+      gastoId: f.gastoId,
+    });
+    return f.id;
+  }
+  return db.facturas.add(f);
+}
+
+export async function deleteFactura(id: number): Promise<void> {
+  await db.facturas.delete(id);
+}
+
+export async function saveInflacion(m: InflacionMes): Promise<number> {
+  const exist = await db.inflacion.where("mesKey").equals(m.mesKey).first();
+  if (exist) {
+    await db.inflacion.update(exist.id!, { variacionPct: m.variacionPct });
+    return exist.id!;
+  }
+  return db.inflacion.add({ mesKey: m.mesKey, variacionPct: m.variacionPct });
+}
+
+export async function deleteInflacion(id: number): Promise<void> {
+  await db.inflacion.delete(id);
+}
+
 export async function clearAllData(): Promise<void> {
   await Promise.all([
     db.productos.clear(),
     db.ventas.clear(),
     db.gastos.clear(),
+    db.presupuestos.clear(),
+    db.facturas.clear(),
+    db.inflacion.clear(),
   ]);
+}
+
+export async function exportarBackup(): Promise<void> {
+  const data = {
+    app: "mi-negocio-finanzas",
+    version: 2,
+    exportado: new Date().toISOString(),
+    productos: await db.productos.toArray(),
+    ventas: await db.ventas.toArray(),
+    gastos: await db.gastos.toArray(),
+    presupuestos: await db.presupuestos.toArray(),
+    facturas: await db.facturas.toArray(),
+    inflacion: await db.inflacion.toArray(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `backup-finanzas-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function importarBackup(file: File): Promise<number> {
+  const text = await file.text();
+  const data = JSON.parse(text);
+  if (!data || !Array.isArray(data.productos)) {
+    throw new Error("El archivo no parece ser un respaldo válido.");
+  }
+  await db.transaction(
+    "rw",
+    [db.productos, db.ventas, db.gastos, db.presupuestos, db.facturas, db.inflacion],
+    async () => {
+    await Promise.all([
+      db.productos.clear(),
+      db.ventas.clear(),
+      db.gastos.clear(),
+      db.presupuestos.clear(),
+      db.facturas.clear(),
+      db.inflacion.clear(),
+    ]);
+    await db.productos.bulkAdd(data.productos || []);
+    await db.ventas.bulkAdd(data.ventas || []);
+    await db.gastos.bulkAdd(data.gastos || []);
+    await db.presupuestos.bulkAdd(data.presupuestos || []);
+    await db.facturas.bulkAdd(data.facturas || []);
+    await db.inflacion.bulkAdd(data.inflacion || []);
+  });
+  return (data.ventas || []).length;
 }
 
 /* ============================ DATOS DE EJEMPLO ============================ */
@@ -263,5 +386,25 @@ export async function cargarDatosEjemplo(): Promise<void> {
         recurrente: false,
       });
     }
+  }
+
+  // Presupuestos por categoría (monto mensual)
+  const presupuestosSeed = [
+    { categoria: "Insumos" as const, montoMensual: 450000 },
+    { categoria: "Publicidad" as const, montoMensual: 60000 },
+    { categoria: "Servicios" as const, montoMensual: 300000 },
+    { categoria: "Sueldos" as const, montoMensual: 200000 },
+    { categoria: "Otros" as const, montoMensual: 50000 },
+  ];
+  await db.presupuestos.bulkAdd(presupuestosSeed);
+
+  // Tabla de inflación mensual (últimos 9 meses, valores de ejemplo)
+  const inflacionSeed = [
+    2.2, 2.0, 1.9, 2.4, 2.1, 1.8, 2.3, 2.0, 1.7,
+  ];
+  for (let i = inflacionSeed.length - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const mesKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    await db.inflacion.add({ mesKey, variacionPct: inflacionSeed[inflacionSeed.length - 1 - i] });
   }
 }
