@@ -1,8 +1,6 @@
-const SALT_KEY = "fin_pwd_salt";
-const HASH_KEY = "fin_pwd_hash";
 const SESSION_KEY = "fin_sess";
 
-async function sha256Hex(text: string): Promise<string> {
+export async function sha256Hex(text: string): Promise<string> {
   const data = new TextEncoder().encode(text);
   const buf = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(buf))
@@ -18,36 +16,19 @@ function randomSalt(): string {
     .join("");
 }
 
-export function hasPassword(): boolean {
-  if (typeof window === "undefined") return false;
-  return !!localStorage.getItem(HASH_KEY);
-}
-
-export async function createPassword(password: string): Promise<void> {
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomSalt();
-  const hash = (await sha256Hex(salt + password)) + ":" + salt;
-  localStorage.setItem(HASH_KEY, hash);
-  openSession();
+  return (await sha256Hex(salt + password)) + ":" + salt;
 }
 
-export async function verifyPassword(password: string): Promise<boolean> {
-  const stored = localStorage.getItem(HASH_KEY);
-  if (!stored) return false;
-  const [hash, salt] = stored.split(":");
-  const candidate = await sha256Hex((salt || "") + password);
-  return candidate === hash;
-}
-
-export async function changePassword(
-  oldPassword: string,
-  newPassword: string
+export async function verifyPasswordHash(
+  password: string,
+  stored: string
 ): Promise<boolean> {
-  const ok = await verifyPassword(oldPassword);
-  if (!ok) return false;
-  const salt = randomSalt();
-  const hash = (await sha256Hex(salt + newPassword)) + ":" + salt;
-  localStorage.setItem(HASH_KEY, hash);
-  return true;
+  const [hash, salt] = (stored || "").split(":");
+  if (!hash || !salt) return false;
+  const candidate = await sha256Hex(salt + password);
+  return candidate === hash;
 }
 
 export function openSession(hours = 24 * 7): void {
@@ -65,10 +46,4 @@ export function isSessionValid(): boolean {
 export function closeSession(): void {
   if (typeof sessionStorage === "undefined") return;
   sessionStorage.removeItem(SESSION_KEY);
-}
-
-export function resetPassword(): void {
-  localStorage.removeItem(HASH_KEY);
-  localStorage.removeItem(SALT_KEY);
-  closeSession();
 }

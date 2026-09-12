@@ -1,6 +1,7 @@
 import Dexie, { type Table } from "dexie";
 import type { Factura, Gasto, InflacionMes, Presupuesto, Producto, Venta } from "./types";
 import { METODOS_PAGO } from "./types";
+import { getCuentaActivaId } from "./accounts";
 
 export class FinDB extends Dexie {
   productos!: Table<Producto, number>;
@@ -10,8 +11,8 @@ export class FinDB extends Dexie {
   facturas!: Table<Factura, number>;
   inflacion!: Table<InflacionMes, number>;
 
-  constructor() {
-    super("finanzasDB");
+  constructor(name = "finanzasDB") {
+    super(name);
     this.version(1).stores({
       productos: "++id, nombre, categoria, sku",
       ventas: "++id, productoId, fecha, metodoPago",
@@ -28,7 +29,12 @@ export class FinDB extends Dexie {
   }
 }
 
-export const db = new FinDB();
+export const db = new FinDB(nombreBasePorCuenta());
+
+function nombreBasePorCuenta(): string {
+  const id = getCuentaActivaId();
+  return id && id !== "default" ? `finanzasDB_${id}` : "finanzasDB";
+}
 
 export async function saveProducto(p: Producto): Promise<number> {
   if (p.id) {

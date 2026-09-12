@@ -1,3 +1,5 @@
+import { getCuentaActivaId } from "./accounts";
+
 export interface CurrencyOption {
   code: string;
   locale: string;
@@ -14,10 +16,15 @@ export const CURRENCIES: CurrencyOption[] = [
   { code: "COP", locale: "es-CO", label: "Peso colombiano", symbol: "$" },
 ];
 
+function currencyKey(): string {
+  const act = getCuentaActivaId() || "default";
+  return act === "default" ? "fin_settings_currency" : `fin_settings_currency_${act}`;
+}
+
 export function currencyCode(): string {
   if (typeof window === "undefined") return "ARS";
   try {
-    return localStorage.getItem("fin_settings_currency") || "ARS";
+    return localStorage.getItem(currencyKey()) || "ARS";
   } catch {
     return "ARS";
   }
@@ -25,7 +32,7 @@ export function currencyCode(): string {
 
 export function setCurrency(code: string) {
   try {
-    localStorage.setItem("fin_settings_currency", code);
+    localStorage.setItem(currencyKey(), code);
   } catch {
     /* noop */
   }
