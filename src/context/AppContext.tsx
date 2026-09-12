@@ -9,6 +9,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  aplicarBarraDeEstado,
+  inicializarNativo,
+  sintonizarPersistenciaNativa,
+} from "@/lib/capacitor";
 import { closeSession, esHashLegacy, hashPassword, isSessionValid, openSession, verifyPasswordHash } from "@/lib/auth";
 import {
   actualizarCuenta,
@@ -83,6 +88,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (list.length === 0) setPhase("setup");
     else if (isSessionValid() && act) setPhase("open");
     else setPhase("locked");
+    void inicializarNativo();
+    void sintonizarPersistenciaNativa();
   }, []);
 
   useEffect(() => {
@@ -92,6 +99,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch {
       /* noop */
     }
+    void aplicarBarraDeEstado(theme === "dark");
   }, [theme]);
 
   const toggleTheme = useCallback(

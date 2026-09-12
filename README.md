@@ -25,8 +25,15 @@ gastos de un negocio pequeño. Hecho con **Next.js 16**, **React 19**,
   (margen bajo, stock estancado, publicidad con bajo retorno, flujo de caja
   negativo, etc.). Incluye un bloque "Listo para IA" que genera el contexto en
   texto plano para conectarlo después con un modelo de lenguaje.
-- **Seguridad**: login con contraseña cifrada (SHA-256 + salt) guardada solo en
-  el navegador.
+- **Seguridad**: login con contraseña (mín. 8 caracteres) cifrada con PBKDF2
+  (250.000 iteraciones, clave derivada con AES-GCM vía WebCrypto) y guardada
+  solo en el navegador. Sesión persistente 30 días.
+- **Multi-cuenta**: hasta 6 negocios/usuarios, cada uno con su propia base de
+  datos local y bloqueo por contraseña.
+- **Integraciones**: importación de cobros de Mercado Pago / Stripe / PayPal.
+  Las credenciales se guardan cifradas en el navegador o como variables de
+  entorno del servidor (`MP_ACCESS_TOKEN`, `STRIPE_SECRET_KEY`,
+  `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`; ver `.env.example`).
 - **Modo oscuro** conmemorativo de preferencia del sistema, diseño responsive.
 
 ## Datos
@@ -75,3 +82,42 @@ npm run lint       # eslint
 vercel        # primer deploy y vinculación del proyecto
 vercel --prod # deploys siguientes (o conecta el repo en vercel.com)
 ```
+
+> Las rutas `/api/import/*` importan cobros de Mercado Pago, Stripe y PayPal
+> desde el servidor. Configurá las variables de entorno en Vercel según
+> `.env.example`; sin ellas las pasarelas funcionan solo con credenciales
+> del navegador.
+
+## App iOS (Capacitor)
+
+La app se puede empaquetar para la App Store usando Capacitor. El proyecto
+carga la versión web desplegada en Vercel dentro de un WebView nativo
+(ver `capacitor.config.ts`); las descargas de PDF/Excel/backup pasan por el
+share sheet nativo y los ajustes críticos se respaldan en `@capacitor/preferences`.
+
+Requisitos: **macOS + Xcode** y, para publicar, cuenta Apple Developer
+(US$ 99/año). En tu Mac:
+
+```bash
+npm install
+npm run build
+
+# Generar la plataforma y sincronizar plugins/web assets
+npm run cap:ios              # cap add ios + cap sync
+
+# Iconos y splash (genera AppIcon y Splash desde assets/icon.png, 1024x1024)
+npm i -D @capacitor/assets
+npx capacitor-assets generate --ios
+
+# Abrir en Xcode
+npx cap open ios
+```
+
+En Xcode: setear el **Bundle Identifier**, la **versión 1.0.0** y el equipo de
+firma, compilar con **Any iOS Device**, y subir con **Product ▸ Archive** para
+App Store Connect (TestFlight → revisión). Recordá actualizar `appId` y el
+`server.url` en `capacitor.config.ts` antes de generar la plataforma.
+
+> El repositorio es público: **no** commitees claves reales, `.env` ni la
+> carpeta generada `ios/` (está en `.gitignore`). El proyecto de Xcode se
+> regenera siempre con `npm run cap:ios`.

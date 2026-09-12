@@ -1,14 +1,8 @@
+import { esNativo } from "./capacitor";
+
 export interface ArchivoDescargable {
   nombre: string;
   data: Blob;
-}
-
-// true solo dentro del wrapper de Capacitor (iOS/Android). En navegador
-// normal siempre false, así nunca se cargan los plugins nativos.
-function esNativo(): boolean {
-  if (typeof window === "undefined") return false;
-  const cap = (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-  return !!cap && typeof cap.isNativePlatform === "function" && cap.isNativePlatform();
 }
 
 function blobABase64(blob: Blob): Promise<string> {

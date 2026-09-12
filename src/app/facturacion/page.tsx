@@ -29,6 +29,7 @@ import {
   letraPara,
 } from "@/lib/fiscal";
 import { fmtDate, fmtMoney, MESES } from "@/lib/format";
+import { feedbackExito } from "@/lib/capacitor";
 import { generarFacturaPDF } from "@/lib/export";
 import {
   Badge,
@@ -125,7 +126,7 @@ export default function FacturacionPage() {
     };
     await saveFactura(factura);
     const iva = letraF === "A" ? calcularIva(factura.monto, fiscal.ivaPct, true) : 0;
-    generarFacturaPDF(factura, fiscal);
+    generarFacturaPDF(factura, fiscal).then(() => feedbackExito(), () => undefined);
     setFacturaMsg(
       `Factura ${letraF} ${numero} generada` +
         (letraF === "A"

@@ -8,6 +8,7 @@ import type { CategoriaGasto, Gasto } from "@/lib/types";
 import { CATEGORIAS_GASTO, CATEGORIAS_GASTO_COLORS } from "@/lib/types";
 import { fmtDate, fmtMoney, MESES } from "@/lib/format";
 import { resumenMes } from "@/lib/calc";
+import { feedbackExito } from "@/lib/capacitor";
 import { gastosPorPresupuesto } from "@/lib/fiscal";
 import {
   Badge,
@@ -498,6 +499,7 @@ export default function GastosPage() {
           onCancel={() => setModalOpen(false)}
           onSave={async (g) => {
             await saveGasto(g);
+            void feedbackExito();
             setModalOpen(false);
           }}
         />

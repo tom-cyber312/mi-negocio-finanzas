@@ -8,6 +8,7 @@ import type { Venta } from "@/lib/types";
 import { METODOS_PAGO } from "@/lib/types";
 import { fmtDateTime, fmtMoney, MESES, toTimestamp } from "@/lib/format";
 import { resumenMes } from "@/lib/calc";
+import { feedbackExito } from "@/lib/capacitor";
 import {
   getFiscalConfig,
   incrementarContadorFactura,
@@ -466,6 +467,7 @@ export default function VentasPage() {
           onCancel={() => setModalOpen(false)}
           onSave={async (v) => {
             await registrarVenta(v);
+            void feedbackExito();
             setModalOpen(false);
           }}
         />
