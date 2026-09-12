@@ -26,7 +26,7 @@ import {
 
 const emptyForm = {
   nombre: "",
-  categoria: "Alimentos",
+  categoria: "remeras regular",
   sku: "",
   costo: 0,
   precio: 0,
@@ -103,22 +103,19 @@ function ProductoForm({
             <Input
               value={f.nombre}
               onChange={(e) => set("nombre", e.target.value)}
-              placeholder="Ej: Café molido 250g"
+              placeholder="Ej: Remera boxy negra"
               autoFocus
             />
           </Field>
         </div>
-        <Field label="Categoría">
-          <Input
-            list="cat-productos"
-            value={f.categoria}
-            onChange={(e) => set("categoria", e.target.value)}
-          />
-          <datalist id="cat-productos">
+        <Field label="Categoría *">
+          <Select value={f.categoria} onChange={(e) => set("categoria", e.target.value)}>
             {CATEGORIAS_PRODUCTO.map((c) => (
-              <option key={c} value={c} />
+              <option key={c} value={c}>
+                {c}
+              </option>
             ))}
-          </datalist>
+          </Select>
         </Field>
         <Field label="SKU / Código">
           <Input

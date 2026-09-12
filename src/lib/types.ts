@@ -72,14 +72,14 @@ export const METODOS_PAGO: MetodoPago[] = [
 ];
 
 export const CATEGORIAS_PRODUCTO = [
-  "Alimentos",
-  "Bebidas",
-  "Limpieza",
-  "Artículos del hogar",
-  "Tecnología",
-  "Ropa",
-  "Cosmética",
-  "Otros",
+  "remeras regular",
+  "remeras boxy",
+  "remeras over",
+  "camperas",
+  "joggins",
+  "buzos",
+  "bermudas",
+  "jeans",
 ];
 
 export interface Recomendacion {

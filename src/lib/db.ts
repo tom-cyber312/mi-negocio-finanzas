@@ -121,18 +121,18 @@ export async function cargarDatosEjemplo(): Promise<void> {
   const rand = mulberry32(20260912);
 
   const productSeeds = [
-    { nombre: "Pan artesanal", categoria: "Alimentos", sku: "PAN-001", costo: 400, precio: 1200, stock: 46, umbralStock: 20 },
-    { nombre: "Café molido 250g", categoria: "Alimentos", sku: "CAF-002", costo: 800, precio: 1900, stock: 25, umbralStock: 10 },
-    { nombre: "Granola 500g", categoria: "Alimentos", sku: "GRN-003", costo: 600, precio: 1500, stock: 60, umbralStock: 15 },
-    { nombre: "Mermelada artesanal", categoria: "Alimentos", sku: "MRM-004", costo: 500, precio: 1300, stock: 41, umbralStock: 12 },
-    { nombre: "Harina sin TACC 1kg", categoria: "Alimentos", sku: "HRN-005", costo: 350, precio: 800, stock: 9, umbralStock: 15 },
-    { nombre: "Aceite de oliva 500ml", categoria: "Alimentos", sku: "ACE-006", costo: 2000, precio: 3500, stock: 20, umbralStock: 8 },
-    { nombre: "Miel pura 1kg", categoria: "Alimentos", sku: "MIL-007", costo: 1200, precio: 2800, stock: 30, umbralStock: 10 },
-    { nombre: "Té en hebras 100g", categoria: "Bebidas", sku: "TEE-008", costo: 300, precio: 900, stock: 50, umbralStock: 20 },
-    { nombre: "Queso artesanal", categoria: "Alimentos", sku: "QSO-009", costo: 1500, precio: 3200, stock: 5, umbralStock: 10 },
-    { nombre: "Velas de soja", categoria: "Artículos del hogar", sku: "VLS-010", costo: 700, precio: 1800, stock: 0, umbralStock: 8 },
-    { nombre: "Bolsas de tela", categoria: "Otros", sku: "BLS-011", costo: 250, precio: 600, stock: 112, umbralStock: 30 },
-    { nombre: "Salsa de tomate 500ml", categoria: "Alimentos", sku: "SLS-012", costo: 450, precio: 1100, stock: 90, umbralStock: 25 },
+    { nombre: "Remera básica algodón", categoria: "remeras regular", sku: "RGL-001", costo: 4500, precio: 12500, stock: 40, umbralStock: 15 },
+    { nombre: "Remera oversized estampada", categoria: "remeras over", sku: "OVR-002", costo: 5500, precio: 15500, stock: 25, umbralStock: 10 },
+    { nombre: "Remera boxy mujer", categoria: "remeras boxy", sku: "BXY-003", costo: 5000, precio: 14000, stock: 18, umbralStock: 12 },
+    { nombre: "Campera rompevientos", categoria: "camperas", sku: "CMP-004", costo: 18000, precio: 42000, stock: 12, umbralStock: 6 },
+    { nombre: "Jogging corderito", categoria: "joggins", sku: "JGG-005", costo: 14000, precio: 33000, stock: 20, umbralStock: 8 },
+    { nombre: "Buzo hoodie unisex", categoria: "buzos", sku: "BZO-006", costo: 16000, precio: 18500, stock: 8, umbralStock: 10 },
+    { nombre: "Bermuda jean", categoria: "bermudas", sku: "BRM-007", costo: 9000, precio: 22000, stock: 30, umbralStock: 12 },
+    { nombre: "Jean dad fit", categoria: "jeans", sku: "JNS-008", costo: 15000, precio: 36000, stock: 0, umbralStock: 10 },
+    { nombre: "Remera longline negra", categoria: "remeras over", sku: "OVR-009", costo: 5200, precio: 14500, stock: 50, umbralStock: 15 },
+    { nombre: "Campera denim", categoria: "camperas", sku: "CMP-010", costo: 20000, precio: 46000, stock: 6, umbralStock: 8 },
+    { nombre: "Jogging cargo", categoria: "joggins", sku: "JGG-011", costo: 13000, precio: 31000, stock: 4, umbralStock: 10 },
+    { nombre: "Buzo crew", categoria: "buzos", sku: "BZO-012", costo: 15000, precio: 35000, stock: 90, umbralStock: 15 },
   ];
 
   const clientes = [
@@ -160,7 +160,7 @@ export async function cargarDatosEjemplo(): Promise<void> {
   );
 
   const popularidad = productSeeds.map((_, i) => 0.5 + (i % 4) * 0.12 + ((i * 7) % 5) * 0.05);
-  const estancados = new Set([3, 10]); // mermelada + bolsas: sin ventas recientes
+  const estancados = new Set([6, 10]); // bermuda jean + jogging cargo: sin ventas recientes
 
   // Generar ventas en los últimos 8 meses
   for (let m = MESES_ATRAS - 1; m >= 0; m--) {
@@ -202,15 +202,15 @@ export async function cargarDatosEjemplo(): Promise<void> {
     // Gastos del mes
     const mesLabel = `${mesInicio.getFullYear()}-${String(mesInicio.getMonth() + 1).padStart(2, "0")}`;
 
-    // Insumos: compras de mercadería
+    // Insumos: reposición de mercadería
     const insumos = 5 + Math.floor(rand() * 4);
     for (let i = 0; i < insumos; i++) {
       const diaI = Math.floor(rand() * dias);
       const ts = new Date(mesInicio.getFullYear(), mesInicio.getMonth(), diaI + 1, 12 + Math.floor(rand() * 5)).getTime();
-      const monto = Math.round((productSeeds[Math.floor(rand() * productSeeds.length)].costo * (20 + rand() * 60) * factor) / 50) * 50;
+      const monto = Math.round((productSeeds[Math.floor(rand() * productSeeds.length)].costo * (8 + rand() * 25) * factor) / 500) * 500;
       await db.gastos.add({
         categoria: "Insumos",
-        descripcion: `Compra insumos ${mesLabel}`,
+        descripcion: `Reposición mercadería ${mesLabel}`,
         monto,
         fecha: ts,
         recurrente: false,
