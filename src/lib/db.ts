@@ -2,6 +2,7 @@ import Dexie, { type Table } from "dexie";
 import type { Factura, Gasto, InflacionMes, Presupuesto, Producto, Venta } from "./types";
 import { METODOS_PAGO } from "./types";
 import { getCuentaActivaId } from "./accounts";
+import { guardarArchivo } from "./download";
 
 export class FinDB extends Dexie {
   productos!: Table<Producto, number>;
@@ -213,15 +214,10 @@ export async function exportarBackup(): Promise<void> {
     facturas: await db.facturas.toArray(),
     inflacion: await db.inflacion.toArray(),
   };
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json",
+  await guardarArchivo({
+    nombre: `backup-finanzas-${new Date().toISOString().slice(0, 10)}.json`,
+    data: new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `backup-finanzas-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 export async function importarBackup(file: File): Promise<number> {

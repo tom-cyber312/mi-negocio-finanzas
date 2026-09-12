@@ -4,6 +4,7 @@ import autoTable from "jspdf-autotable";
 import type { Factura, FiscalConfig, Gasto, Producto, Venta } from "./types";
 import { CURRENCIES, currencyCode, fmtDate, fmtDateTime, MESES } from "./format";
 import { calcularIva, condicionTitulo } from "./fiscal";
+import { guardarArchivo } from "./download";
 
 function money(n: number): string {
   const c = CURRENCIES.find((x) => x.code === currencyCode());
@@ -14,7 +15,7 @@ function money(n: number): string {
   }).format(n);
 }
 
-export function exportarExcelGeneral(
+export async function exportarExcelGeneral(
   productos: Producto[],
   ventas: Venta[],
   gastos: Gasto[],
@@ -64,10 +65,16 @@ export function exportarExcelGeneral(
     "Ventas"
   );
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gastoRows), "Gastos");
-  XLSX.writeFile(wb, `${filename}.xlsx`);
+  const array = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  await guardarArchivo({
+    nombre: `${filename}.xlsx`,
+    data: new Blob([array], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  });
 }
 
-export function exportarExcelMensual(
+export async function exportarExcelMensual(
   year: number,
   monthIdx: number,
   ventas: Venta[],
@@ -116,10 +123,16 @@ export function exportarExcelMensual(
     "Gastos"
   );
 
-  XLSX.writeFile(wb, `reporte-${MESES[monthIdx].toLowerCase()}-${year}.xlsx`);
+  const array = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  await guardarArchivo({
+    nombre: `reporte-${MESES[monthIdx].toLowerCase()}-${year}.xlsx`,
+    data: new Blob([array], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  });
 }
 
-export function exportarPDFMensual(
+export async function exportarPDFMensual(
   year: number,
   monthIdx: number,
   ventas: Venta[],
@@ -185,10 +198,13 @@ autoTable(doc, {
     });
   }
 
-  doc.save(`reporte-${MESES[monthIdx].toLowerCase()}-${year}.pdf`);
+  await guardarArchivo({
+    nombre: `reporte-${MESES[monthIdx].toLowerCase()}-${year}.pdf`,
+    data: doc.output("blob"),
+  });
 }
 
-export function generarFacturaPDF(f: Factura, fiscal: FiscalConfig) {
+export async function generarFacturaPDF(f: Factura, fiscal: FiscalConfig) {
   const doc = new jsPDF();
   const iva = f.letra === "A" ? calcularIva(f.monto, fiscal.ivaPct, true) : 0;
   const neto = f.monto - iva;
@@ -231,5 +247,8 @@ export function generarFacturaPDF(f: Factura, fiscal: FiscalConfig) {
   y += 8;
   doc.text(f.detalle, 14, y);
 
-  doc.save(`factura-${f.letra}-${f.numero.replace(/\s+/g, "-")}.pdf`);
+  await guardarArchivo({
+    nombre: `factura-${f.letra}-${f.numero.replace(/\s+/g, "-")}.pdf`,
+    data: doc.output("blob"),
+  });
 }
