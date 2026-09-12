@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { Factura, FiscalConfig, Gasto, Producto, Venta } from "./types";
@@ -15,63 +15,116 @@ function money(n: number): string {
   }).format(n);
 }
 
+function agregarHojaExcel(
+  wb: ExcelJS.Workbook,
+  nombre: string,
+  encabezados: string[],
+  filas: unknown[][]
+): void {
+  const ws = wb.addWorksheet(nombre);
+  ws.addRow(encabezados).font = { bold: true };
+  filas.forEach((f) => ws.addRow(f));
+  ws.columns.forEach((col, i) => {
+    const max = filas.reduce(
+      (m, f) => Math.max(m, String(f[i] ?? "").length),
+      encabezados[i]?.length ?? 0
+    );
+    col.width = Math.min(Math.max(max + 2, 12), 40);
+  });
+  ws.getRow(1).height = 20;
+}
+
+async function guardarWorkbook(
+  wb: ExcelJS.Workbook,
+  nombre: string
+): Promise<void> {
+  const buffer = await wb.xlsx.writeBuffer();
+  await guardarArchivo({
+    nombre,
+    data: new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  });
+}
+
 export async function exportarExcelGeneral(
   productos: Producto[],
   ventas: Venta[],
   gastos: Gasto[],
   filename = "reporte"
 ) {
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
 
-  const prodRows = productos.map((p) => ({
-    Nombre: p.nombre,
-    Categoría: p.categoria,
-    SKU: p.sku,
-    Costo: p.costo,
-    "Precio venta": p.precio,
-    "Margen %": p.precio ? +(((p.precio - p.costo) / p.precio) * 100).toFixed(1) : 0,
-    Stock: p.stock,
-    Umbral: p.umbralStock,
-    "Costo invertido": +(p.costo * p.stock).toFixed(2),
-    "Ganancia potencial": +((p.precio - p.costo) * p.stock).toFixed(2),
-  }));
-  const ventaRows = ventas.map((v) => ({
-    Fecha: fmtDateTime(v.fecha),
-    Producto: v.nombreProducto,
-    Cantidad: v.cantidad,
-    "Precio unitario": v.precioUnitario,
-    Total: +(v.cantidad * v.precioUnitario).toFixed(2),
-    "Costo venta": +(v.cantidad * v.costoUnitario).toFixed(2),
-    "Ganancia": +((v.precioUnitario - v.costoUnitario) * v.cantidad).toFixed(2),
-    Cliente: v.cliente || "",
-    "Método de pago": v.metodoPago,
-  }));
-  const gastoRows = gastos.map((g) => ({
-    Fecha: fmtDate(g.fecha),
-    Categoría: g.categoria,
-    Descripción: g.descripcion,
-    Monto: g.monto,
-    Recurrente: g.recurrente ? "Sí" : "No",
-  }));
+  agregarHojaExcel(
+    wb,
+    "Productos",
+    [
+      "Nombre",
+      "Categoría",
+      "SKU",
+      "Costo",
+      "Precio venta",
+      "Margen %",
+      "Stock",
+      "Umbral",
+      "Costo invertido",
+      "Ganancia potencial",
+    ],
+    productos.map((p) => [
+      p.nombre,
+      p.categoria,
+      p.sku,
+      p.costo,
+      p.precio,
+      p.precio ? +(((p.precio - p.costo) / p.precio) * 100).toFixed(1) : 0,
+      p.stock,
+      p.umbralStock,
+      +(p.costo * p.stock).toFixed(2),
+      +((p.precio - p.costo) * p.stock).toFixed(2),
+    ])
+  );
 
-  XLSX.utils.book_append_sheet(
+  agregarHojaExcel(
     wb,
-    XLSX.utils.json_to_sheet(prodRows),
-    "Productos"
+    "Ventas",
+    [
+      "Fecha",
+      "Producto",
+      "Cantidad",
+      "Precio unitario",
+      "Total",
+      "Costo venta",
+      "Ganancia",
+      "Cliente",
+      "Método de pago",
+    ],
+    ventas.map((v) => [
+      fmtDateTime(v.fecha),
+      v.nombreProducto,
+      v.cantidad,
+      v.precioUnitario,
+      +(v.cantidad * v.precioUnitario).toFixed(2),
+      +(v.cantidad * v.costoUnitario).toFixed(2),
+      +((v.precioUnitario - v.costoUnitario) * v.cantidad).toFixed(2),
+      v.cliente || "",
+      v.metodoPago,
+    ])
   );
-  XLSX.utils.book_append_sheet(
+
+  agregarHojaExcel(
     wb,
-    XLSX.utils.json_to_sheet(ventaRows),
-    "Ventas"
+    "Gastos",
+    ["Fecha", "Categoría", "Descripción", "Monto", "Recurrente"],
+    gastos.map((g) => [
+      fmtDate(g.fecha),
+      g.categoria,
+      g.descripcion,
+      g.monto,
+      g.recurrente ? "Sí" : "No",
+    ])
   );
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(gastoRows), "Gastos");
-  const array = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
-  await guardarArchivo({
-    nombre: `${filename}.xlsx`,
-    data: new Blob([array], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }),
-  });
+
+  await guardarWorkbook(wb, `${filename}.xlsx`);
 }
 
 export async function exportarExcelMensual(
@@ -82,54 +135,60 @@ export async function exportarExcelMensual(
   ingresos: number,
   egresos: number
 ) {
-  const wb = XLSX.utils.book_new();
-  const resumen = [
-    { Concepto: "Mes", Valor: `${MESES[monthIdx]} ${year}` },
-    { Concepto: "Ingresos", Valor: ingresos },
-    { Concepto: "Egresos", Valor: egresos },
-    { Concepto: "Balance neto", Valor: ingresos - egresos },
-  ];
-  XLSX.utils.book_append_sheet(
+  const wb = new ExcelJS.Workbook();
+
+  agregarHojaExcel(
     wb,
-    XLSX.utils.json_to_sheet(resumen),
-    "Resumen"
+    "Resumen",
+    ["Concepto", "Valor"],
+    [
+      ["Mes", `${MESES[monthIdx]} ${year}`],
+      ["Ingresos", ingresos],
+      ["Egresos", egresos],
+      ["Balance neto", ingresos - egresos],
+    ]
   );
 
-  const ventaRows = ventas.map((v) => ({
-    Fecha: fmtDateTime(v.fecha),
-    Producto: v.nombreProducto,
-    Cantidad: v.cantidad,
-    "Precio unitario": v.precioUnitario,
-    Total: +(v.cantidad * v.precioUnitario).toFixed(2),
-    Cliente: v.cliente || "",
-    "Método de pago": v.metodoPago,
-  }));
-  XLSX.utils.book_append_sheet(
+  agregarHojaExcel(
     wb,
-    XLSX.utils.json_to_sheet(ventaRows),
-    "Ventas"
+    "Ventas",
+    [
+      "Fecha",
+      "Producto",
+      "Cantidad",
+      "Precio unitario",
+      "Total",
+      "Cliente",
+      "Método de pago",
+    ],
+    ventas.map((v) => [
+      fmtDateTime(v.fecha),
+      v.nombreProducto,
+      v.cantidad,
+      v.precioUnitario,
+      +(v.cantidad * v.precioUnitario).toFixed(2),
+      v.cliente || "",
+      v.metodoPago,
+    ])
   );
 
-  const gastoRows = gastos.map((g) => ({
-    Fecha: fmtDate(g.fecha),
-    Categoría: g.categoria,
-    Descripción: g.descripcion,
-    Monto: g.monto,
-    Recurrente: g.recurrente ? "Sí" : "No",
-  }));
-  XLSX.utils.book_append_sheet(
+  agregarHojaExcel(
     wb,
-    XLSX.utils.json_to_sheet(gastoRows),
-    "Gastos"
+    "Gastos",
+    ["Fecha", "Categoría", "Descripción", "Monto", "Recurrente"],
+    gastos.map((g) => [
+      fmtDate(g.fecha),
+      g.categoria,
+      g.descripcion,
+      g.monto,
+      g.recurrente ? "Sí" : "No",
+    ])
   );
 
-  const array = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
-  await guardarArchivo({
-    nombre: `reporte-${MESES[monthIdx].toLowerCase()}-${year}.xlsx`,
-    data: new Blob([array], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }),
-  });
+  await guardarWorkbook(
+    wb,
+    `reporte-${MESES[monthIdx].toLowerCase()}-${year}.xlsx`
+  );
 }
 
 export async function exportarPDFMensual(
