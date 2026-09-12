@@ -24,6 +24,11 @@ import {
 } from "@/lib/accounts";
 import { setCurrency } from "@/lib/format";
 import { currencyCode } from "@/lib/format";
+import {
+  crearClave,
+  limpiarClave,
+  limpiarSecretosDeCuenta,
+} from "@/lib/secureStore";
 
 export type Phase = "loading" | "setup" | "locked" | "open";
 
@@ -39,6 +44,7 @@ interface ThemeContextValue {
   crearCuenta: (nombre: string, email: string, pw: string) => Promise<Cuenta>;
   iniciarSesionCon: (cuentaId: string) => void;
   login: (email: string, pw: string) => Promise<boolean>;
+  desbloquearClaves: (pw: string) => Promise<boolean>;
   logout: () => void;
   cambiarCuenta: (cuentaId: string) => void;
   renombrarCuenta: (cuentaId: string, nombre: string) => void;
@@ -122,20 +128,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (email: string, pw: string): Promise<boolean> => {
       const cuenta = await validarLogin(email, pw);
       if (!cuenta) return false;
+      try {
+        await crearClave(pw);
+      } catch {
+        /* sin WebCrypto: se degrada a token sin cifrado */
+      }
       iniciarSesionCon(cuenta.id);
       return true;
     },
     [iniciarSesionCon]
   );
 
+  const desbloquearClaves = useCallback(async (pw: string): Promise<boolean> => {
+    const act = getCuentaActiva();
+    if (!act) return false;
+    const ok = await validarLogin(act.email, pw);
+    if (!ok) return false;
+    try {
+      await crearClave(pw);
+    } catch {
+      /* noop */
+    }
+    return true;
+  }, []);
+
   const logout = useCallback(() => {
     closeSession();
+    limpiarClave();
     setPhase("locked");
   }, []);
 
   const cambiarCuenta = useCallback((cuentaId: string) => {
     setCuentaActiva(cuentaId);
     closeSession();
+    limpiarClave();
     refrescarCuentaActiva();
     setPhase("locked");
   }, [refrescarCuentaActiva]);
@@ -149,9 +175,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const eliminarCuenta = useCallback((cuentaId: string): boolean => {
     const rest = eliminarCuentaRegistrada(cuentaId);
     setCuentas(rest);
+    limpiarSecretosDeCuenta(cuentaId);
     const eraActiva = getCuentaActivaId() === cuentaId;
     if (eraActiva) {
       closeSession();
+      limpiarClave();
       if (rest.length > 0) {
         setCuentaActiva(rest[0].id);
         refrescarCuentaActiva();
@@ -172,6 +200,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const ok = await verifyPasswordHash(oldPw, act.hash);
       if (!ok) return false;
       actualizarCuenta({ ...act, hash: await hashPassword(newPw) });
+      limpiarSecretosDeCuenta(act.id);
+      limpiarClave();
       refrescarCuentaActiva();
       openSession();
       return true;
@@ -197,6 +227,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       crearCuenta,
       iniciarSesionCon,
       login,
+      desbloquearClaves,
       logout,
       cambiarCuenta,
       renombrarCuenta,
@@ -214,6 +245,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       crearCuenta,
       iniciarSesionCon,
       login,
+      desbloquearClaves,
       logout,
       cambiarCuenta,
       renombrarCuenta,

@@ -41,13 +41,15 @@ export function setFiscalConfig(cfg: FiscalConfig): void {
 }
 
 export const DEFAULT_GATEWAYS: GatewayConfig = {
-  mpToken: "",
   mpEnabled: false,
-  stripeSecret: "",
+  mpSaveToken: false,
+  mpUsarServidor: false,
   stripeEnabled: false,
-  paypalClientId: "",
-  paypalSecret: "",
+  stripeSaveToken: false,
+  stripeUsarServidor: false,
   paypalEnabled: false,
+  paypalSaveToken: false,
+  paypalUsarServidor: false,
 };
 
 export function getGateways(): GatewayConfig {
@@ -55,7 +57,20 @@ export function getGateways(): GatewayConfig {
   try {
     const raw = localStorage.getItem(GW_KEY());
     if (!raw) return DEFAULT_GATEWAYS;
-    return { ...DEFAULT_GATEWAYS, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    // Mezcla selectiva: nunca se leen tokens en claro de la config.
+    return {
+      ...DEFAULT_GATEWAYS,
+      mpEnabled: !!parsed.mpEnabled,
+      mpSaveToken: !!parsed.mpSaveToken,
+      mpUsarServidor: !!parsed.mpUsarServidor,
+      stripeEnabled: !!parsed.stripeEnabled,
+      stripeSaveToken: !!parsed.stripeSaveToken,
+      stripeUsarServidor: !!parsed.stripeUsarServidor,
+      paypalEnabled: !!parsed.paypalEnabled,
+      paypalSaveToken: !!parsed.paypalSaveToken,
+      paypalUsarServidor: !!parsed.paypalUsarServidor,
+    };
   } catch {
     return DEFAULT_GATEWAYS;
   }
@@ -63,7 +78,21 @@ export function getGateways(): GatewayConfig {
 
 export function setGateways(cfg: GatewayConfig): void {
   try {
-    localStorage.setItem(GW_KEY(), JSON.stringify(cfg));
+    // Solo flags: los tokens se guardan cifrados aparte (secureStore).
+    localStorage.setItem(
+      GW_KEY(),
+      JSON.stringify({
+        mpEnabled: cfg.mpEnabled,
+        mpSaveToken: cfg.mpSaveToken,
+        mpUsarServidor: cfg.mpUsarServidor,
+        stripeEnabled: cfg.stripeEnabled,
+        stripeSaveToken: cfg.stripeSaveToken,
+        stripeUsarServidor: cfg.stripeUsarServidor,
+        paypalEnabled: cfg.paypalEnabled,
+        paypalSaveToken: cfg.paypalSaveToken,
+        paypalUsarServidor: cfg.paypalUsarServidor,
+      })
+    );
   } catch {
     /* noop */
   }

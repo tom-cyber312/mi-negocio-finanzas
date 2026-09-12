@@ -219,13 +219,14 @@ function LoginForm({
 }
 
 function LoginScreen() {
-  const { phase, crearCuenta, iniciarSesionCon, cuentas, cuentaActiva } =
+  const { phase, crearCuenta, iniciarSesionCon, login, cuentas, cuentaActiva } =
     useApp();
   const [adding, setAdding] = useState(false);
 
   const crearYEntrar = async (nombre: string, email: string, pw: string) => {
     const cuenta = await crearCuenta(nombre, email, pw);
-    iniciarSesionCon(cuenta.id);
+    const ok = await login(email, pw);
+    if (!ok) iniciarSesionCon(cuenta.id);
   };
 
   return (

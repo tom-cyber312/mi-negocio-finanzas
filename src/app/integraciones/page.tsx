@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   Building2,
@@ -9,17 +9,29 @@ import {
   Eye,
   EyeOff,
   FileSpreadsheet,
-  Link2,
+  Lock,
   RefreshCw,
   ScanBarcode,
+  Server,
+  ShieldCheck,
   ShoppingBag,
   Webhook,
 } from "lucide-react";
 import { db, agregarVentaExterna } from "@/lib/db";
 import { getGateways, setGateways } from "@/lib/config";
 import type { GatewayConfig, TransaccionExterna } from "@/lib/types";
+import {
+  SLOTS,
+  borrarSecreto,
+  claveDisponible,
+  haySecretoGuardado,
+  leerSecreto,
+  guardarSecreto,
+  type Slot,
+} from "@/lib/secureStore";
 import { fmtDateTime, fmtMoney } from "@/lib/format";
 import { parseCsvTransacciones } from "@/lib/importCsv";
+import { useApp } from "@/context/AppContext";
 import {
   Badge,
   Button,
@@ -36,6 +48,8 @@ interface VistaPrevia {
   gateway: string;
   transacciones: TransaccionExterna[];
 }
+
+type EstadoServidor = { mp: boolean; stripe: boolean; paypal: boolean };
 
 function GatewayCard({
   nombre,
@@ -114,11 +128,31 @@ function SecretField({
   );
 }
 
+function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: React.ReactNode }) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 rounded accent-emerald-600"
+      />
+      <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300">{label}</span>
+    </label>
+  );
+}
+
 export default function IntegracionesPage() {
   const ventas = useLiveQuery(() => db.ventas.toArray(), []);
+  const { desbloquearClaves } = useApp();
 
   const [cfg, setCfg] = useState<GatewayConfig>(() => getGateways());
+  const [estadoServidor, setEstadoServidor] = useState<EstadoServidor | null>(null);
   const [guardado, setGuardado] = useState(false);
+  const [mpToken, setMpToken] = useState("");
+  const [stripeSecret, setStripeSecret] = useState("");
+  const [ppClient, setPpClient] = useState("");
+  const [ppSecret, setPpSecret] = useState("");
   const [desde, setDesde] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -132,6 +166,27 @@ export default function IntegracionesPage() {
   const [csvResult, setCsvResult] = useState<{ total: number; ignoradas: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Flujo de contraseña para descifrar tokens guardados
+  const [pedidoClave, setPedidoClave] = useState(false);
+  const [claveText, setClaveText] = useState("");
+  const [claveErr, setClaveErr] = useState<string | null>(null);
+  const pendienteRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let activo = true;
+    fetch("/api/import/status")
+      .then((r) => r.json())
+      .then((d: EstadoServidor) => {
+        if (activo) setEstadoServidor(d);
+      })
+      .catch(() => {
+        if (activo) setEstadoServidor({ mp: false, stripe: false, paypal: false });
+      });
+    return () => {
+      activo = false;
+    };
+  }, []);
+
   const yaImportados = useMemo(() => {
     const set = new Set<string>();
     for (const v of ventas || []) {
@@ -140,10 +195,98 @@ export default function IntegracionesPage() {
     return set;
   }, [ventas]);
 
-  const guardar = () => {
-    setGateways(cfg);
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 2500);
+  const avisoTokenMP = mpToken.trim()
+    ? mpToken.trim().startsWith("TEST-")
+      ? "Token de PRUEBA (sandbox): importará datos de prueba, no pagos reales."
+      : !mpToken.trim().startsWith("APP_USR-")
+        ? "Formato no habitual: los tokens de Mercado Pago empiezan con TEST- o APP_USR-."
+        : "Access token de producción."
+    : undefined;
+
+  const avisoTokenStripe = stripeSecret.trim()
+    ? stripeSecret.trim().startsWith("sk_test_")
+      ? "Clave de PRUEBA: solo funciona en el modo test."
+      : !stripeSecret.trim().startsWith("sk_live_")
+        ? "Formato no habitual: las claves de Stripe empiezan con sk_test_ o sk_live_."
+        : "Clave de producción."
+    : undefined;
+
+  const avisoTokenPayPal = (v: string, nombre: string) =>
+    v.trim()
+      ? /^[A-Za-z0-9_-]{16,80}$/.test(v.trim())
+        ? undefined
+        : `Verificá el ${nombre} de PayPal (formato alfanumérico).`
+      : undefined;
+
+  type ResToken =
+    | { ok: true; token: string }
+    | { ok: false; necesitaClave: boolean; razon?: string };
+
+  async function resolverToken(args: { local: string; slot: Slot; usarServidor: boolean }): Promise<ResToken> {
+    if (args.usarServidor) return { ok: true, token: "" };
+    if (args.local.trim()) return { ok: true, token: args.local.trim() };
+    if (haySecretoGuardado(args.slot)) {
+      if (!claveDisponible()) return { ok: false, necesitaClave: true };
+      const s = await leerSecreto(args.slot);
+      if (s === null)
+        return {
+          ok: false,
+          necesitaClave: false,
+          razon: "No se pudo descifrar el token guardado. Reingresalo o actualizá tu contraseña.",
+        };
+      return { ok: true, token: s };
+    }
+    return {
+      ok: false,
+      necesitaClave: false,
+      razon:
+        "No hay token cargado para esta pasarela. Cargalo abajo, o activá la opción de usar el token del servidor.",
+    };
+  }
+
+  const iniciarFlujoClave = (accion: string) => {
+    pendienteRef.current = accion;
+    setClaveErr(null);
+    setClaveText("");
+    setPedidoClave(true);
+  };
+
+  const confirmarClave = async () => {
+    if (!claveText) return setClaveErr("Ingresá tu contraseña.");
+    const ok = await desbloquearClaves(claveText);
+    if (!ok) return setClaveErr("Contraseña incorrecta.");
+    setClaveText("");
+    setPedidoClave(false);
+    const pendiente = pendienteRef.current;
+    pendienteRef.current = null;
+    if (pendiente === "guardar") guardar();
+    else if (pendiente) void importarGateway(pendiente);
+  };
+
+  const guardar = async () => {
+    setError(null);
+    try {
+      if (cfg.mpSaveToken) {
+        if (mpToken.trim()) await guardarSecreto(SLOTS.mp, mpToken.trim());
+      } else borrarSecreto(SLOTS.mp);
+
+      if (cfg.stripeSaveToken) {
+        if (stripeSecret.trim()) await guardarSecreto(SLOTS.stripe, stripeSecret.trim());
+      } else borrarSecreto(SLOTS.stripe);
+
+      if (cfg.paypalSaveToken) {
+        if (ppClient.trim()) await guardarSecreto(SLOTS.paypalClient, ppClient.trim());
+        if (ppSecret.trim()) await guardarSecreto(SLOTS.paypalSecret, ppSecret.trim());
+      } else {
+        borrarSecreto(SLOTS.paypalClient);
+        borrarSecreto(SLOTS.paypalSecret);
+      }
+      setGateways(cfg);
+      setGuardado(true);
+      setTimeout(() => setGuardado(false), 2500);
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
 
   const importarGateway = async (gateway: string) => {
@@ -154,15 +297,46 @@ export default function IntegracionesPage() {
       let endpoint = "";
       if (gateway === "Mercado Pago") {
         endpoint = "/api/import/mp";
-        body.token = cfg.mpToken;
+        const r = await resolverToken({ local: mpToken, slot: SLOTS.mp, usarServidor: cfg.mpUsarServidor });
+        if (!r.ok) {
+          if (r.necesitaClave) {
+            iniciarFlujoClave(gateway);
+            return;
+          }
+          setError(r.razon || "Falta el token.");
+          return;
+        }
+        body.token = r.token;
       } else if (gateway === "Stripe") {
         endpoint = "/api/import/stripe";
-        body.secretKey = cfg.stripeSecret;
+        const r = await resolverToken({ local: stripeSecret, slot: SLOTS.stripe, usarServidor: cfg.stripeUsarServidor });
+        if (!r.ok) {
+          if (r.necesitaClave) {
+            iniciarFlujoClave(gateway);
+            return;
+          }
+          setError(r.razon || "Falta la clave.");
+          return;
+        }
+        body.secretKey = r.token;
       } else {
         endpoint = "/api/import/paypal";
-        body.clientId = cfg.paypalClientId;
-        body.secret = cfg.paypalSecret;
+        const rc = await resolverToken({ local: ppClient, slot: SLOTS.paypalClient, usarServidor: cfg.paypalUsarServidor });
+        const rs = await resolverToken({ local: ppSecret, slot: SLOTS.paypalSecret, usarServidor: cfg.paypalUsarServidor });
+        const sinResolver = [rc, rs].filter((x): x is Extract<ResToken, { ok: false }> => !x.ok);
+        if (sinResolver.some((x) => x.necesitaClave)) {
+          iniciarFlujoClave(gateway);
+          return;
+        }
+        const fallo = sinResolver[0];
+        if (fallo) {
+          setError(fallo.razon || "Faltan las credenciales de PayPal.");
+          return;
+        }
+        body.clientId = (rc as Extract<ResToken, { ok: true }>).token;
+        body.secret = (rs as Extract<ResToken, { ok: true }>).token;
       }
+
       const resp = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -227,6 +401,18 @@ export default function IntegracionesPage() {
     ? preview.transacciones.filter((t) => !yaImportados.has(t.externalId)).length
     : 0;
 
+  const badgeServidor = (key: keyof EstadoServidor) =>
+    estadoServidor && estadoServidor[key] ? (
+      <Badge tone="green">Servidor: configurado</Badge>
+    ) : (
+      <Badge tone="zinc">Servidor: no configurado</Badge>
+    );
+
+  const tieneGuardadoMP = haySecretoGuardado(SLOTS.mp);
+  const tieneGuardadoStripe = haySecretoGuardado(SLOTS.stripe);
+  const tieneGuardadoPayPal =
+    haySecretoGuardado(SLOTS.paypalClient) || haySecretoGuardado(SLOTS.paypalSecret);
+
   return (
     <div>
       <PageHeader
@@ -266,35 +452,78 @@ export default function IntegracionesPage() {
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-2 text-sky-600 dark:text-sky-400">
-            <Link2 className="h-4 w-4" />
+            <ShieldCheck className="h-4 w-4" />
             <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Estado
+              Seguridad
             </p>
           </div>
-          <p className="mt-2 text-sm font-bold text-zinc-900 dark:text-zinc-100">
-            {cfg.mpEnabled || cfg.stripeEnabled || cfg.paypalEnabled
-              ? "Pasarelas activas"
-              : "Sin conectar"}
+          <p className="mt-2 text-xl font-bold leading-snug text-zinc-900 dark:text-zinc-100">
+            Tokens cifrados
+            <Lock className="ml-1 inline h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           </p>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            La clave se guarda solo en este navegador
+            Claves cifradas (AES-256) o token del servidor.
           </p>
         </Card>
       </div>
 
       <div className="mb-6 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-5 py-4">
-        <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-          Seguridad de las claves
-          <Tip
-            className="ml-1.5"
-            text="Las claves se almacenan en el navegador de tu dispositivo (localStorage) y solo se envían al leer ventas. Usá tokens con permisos de lectura, limitados a lo necesario."
-          />
-        </p>
-        <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-400/70">
-          Son datos personales: nadie más en esta app los usa. Si tu dispositivo
-          es compartido, considerá no guardar claves y cargarlas solo al
-          importar.
-        </p>
+        <div className="flex items-start gap-2">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              Cómo proteger tus claves
+              <Tip
+                className="ml-1.5"
+                text="Tus tokens son llaves digitales: con un access token de Mercado Pago se puede operar tu cuenta. Tratalos como tu contraseña del banco."
+              />
+            </p>
+            <ul className="list-disc space-y-1 pl-4 text-xs text-amber-700/90 dark:text-amber-400/80">
+              <li>
+                <b>No los guardes salvo que sea necesario.</b> Si no marcás la opción, el token se usa solo
+                en esa importación y queda únicamente en memoria.
+              </li>
+              <li>
+                Si los <b>guardás</b>, quedan <b>cifrados (AES-256)</b> con tu contraseña de la cuenta: solo se
+                descifran si ingresás la contraseña en esta sesión.
+              </li>
+              <li>
+                <b>Nada sube a GitHub ni al código:</b> las claves viven en tu navegador (cifradas) o en las{" "}
+                <b>variables de entorno del servidor</b> (Vercel). El repositorio público nunca las contiene.
+              </li>
+              <li>
+                Usá <b>tokens de lectura / limitados</b> y <b>rotalos periódicamente</b> desde el panel de cada
+                proveedor.
+              </li>
+            </ul>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs">
+              <a
+                href="https://www.mercadopago.com.ar/developers/panel/app"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-amber-700 underline decoration-amber-400 underline-offset-2 hover:no-underline dark:text-amber-400"
+              >
+                Mercado Pago: panel de credenciales →
+              </a>
+              <a
+                href="https://dashboard.stripe.com/apikeys"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-amber-700 underline decoration-amber-400 underline-offset-2 hover:no-underline dark:text-amber-400"
+              >
+                Stripe: API keys →
+              </a>
+              <a
+                href="https://developer.paypal.com/dashboard/applications"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-amber-700 underline decoration-amber-400 underline-offset-2 hover:no-underline dark:text-amber-400"
+              >
+                PayPal: aplicaciones →
+              </a>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:items-end">
@@ -305,13 +534,13 @@ export default function IntegracionesPage() {
           <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
         </Field>
         <div className="flex flex-wrap gap-2">
-          <Button variant="white" onClick={() => importarGateway("Mercado Pago")} disabled={!cfg.mpToken || importando !== null}>
+          <Button variant="white" onClick={() => importarGateway("Mercado Pago")} disabled={importando !== null}>
             <CreditCard className="h-4 w-4" /> MP
           </Button>
-          <Button variant="white" onClick={() => importarGateway("Stripe")} disabled={!cfg.stripeSecret || importando !== null}>
+          <Button variant="white" onClick={() => importarGateway("Stripe")} disabled={importando !== null}>
             <CreditCard className="h-4 w-4" /> Stripe
           </Button>
-          <Button variant="white" onClick={() => importarGateway("PayPal")} disabled={!cfg.paypalClientId || !cfg.paypalSecret || importando !== null}>
+          <Button variant="white" onClick={() => importarGateway("PayPal")} disabled={importando !== null}>
             <CreditCard className="h-4 w-4" /> PayPal
           </Button>
         </div>
@@ -373,13 +602,45 @@ export default function IntegracionesPage() {
           enabled={cfg.mpEnabled}
           onToggle={(v) => setCfg({ ...cfg, mpEnabled: v })}
           fields={
-            <SecretField
-              label="Access token"
-              value={cfg.mpToken}
-              onChange={(v) => setCfg({ ...cfg, mpToken: v })}
-              placeholder="TEST-… / APP_USR-…"
-              hint="Se usa con permisos de lectura de tus pagos."
-            />
+            <>
+              <SecretField
+                label="Access token (no se guarda salvo que lo pidas)"
+                value={mpToken}
+                onChange={(v) => setMpToken(v)}
+                placeholder="TEST-… / APP_USR-…"
+                hint={avisoTokenMP}
+              />
+              {tieneGuardadoMP && (
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                  <Lock className="mr-1 inline h-3 w-3" />
+                  Hay un token guardado cifrado. Se usa en las importaciones (pide tu contraseña).
+                </p>
+              )}
+              <Toggle
+                on={cfg.mpSaveToken}
+                onChange={(v) => setCfg({ ...cfg, mpSaveToken: v })}
+                label={
+                  <>
+                    Guardar cifrado en este navegador
+                    <Tip text="Lo cifra con tu contraseña (AES-256). Sin marcar, se usa solo en esa importación y se descarta." />
+                  </>
+                }
+              />
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/40">
+                <Toggle
+                  on={cfg.mpUsarServidor}
+                  onChange={(v) => setCfg({ ...cfg, mpUsarServidor: v })}
+                  label={
+                    <>
+                      <Server className="mr-1 inline h-3.5 w-3.5" />
+                      Usar token del servidor
+                      <Tip text="El access token se configura como variable MP_ACCESS_TOKEN en Vercel y nunca llega al navegador ni a GitHub. El botón de importar usa esa clave automáticamente." />
+                    </>
+                  }
+                />
+                {badgeServidor("mp")}
+              </div>
+            </>
           }
         />
         <GatewayCard
@@ -388,12 +649,45 @@ export default function IntegracionesPage() {
           enabled={cfg.stripeEnabled}
           onToggle={(v) => setCfg({ ...cfg, stripeEnabled: v })}
           fields={
-            <SecretField
-              label="Clave secreta"
-              value={cfg.stripeSecret}
-              onChange={(v) => setCfg({ ...cfg, stripeSecret: v })}
-              placeholder="sk_live_…"
-            />
+            <>
+              <SecretField
+                label="Clave secreta (no se guarda salvo que lo pidas)"
+                value={stripeSecret}
+                onChange={(v) => setStripeSecret(v)}
+                placeholder="sk_live_…"
+                hint={avisoTokenStripe}
+              />
+              {tieneGuardadoStripe && (
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                  <Lock className="mr-1 inline h-3 w-3" />
+                  Hay una clave guardada cifrada.
+                </p>
+              )}
+              <Toggle
+                on={cfg.stripeSaveToken}
+                onChange={(v) => setCfg({ ...cfg, stripeSaveToken: v })}
+                label={
+                  <>
+                    Guardar cifrada en este navegador
+                    <Tip text="La cifra con tu contraseña (AES-256). Sin marcar, se usa solo en esa importación y se descarta." />
+                  </>
+                }
+              />
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/40">
+                <Toggle
+                  on={cfg.stripeUsarServidor}
+                  onChange={(v) => setCfg({ ...cfg, stripeUsarServidor: v })}
+                  label={
+                    <>
+                      <Server className="mr-1 inline h-3.5 w-3.5" />
+                      Usar clave del servidor
+                      <Tip text="Se configura como STRIPE_SECRET_KEY en Vercel y nunca llega al navegador ni a GitHub." />
+                    </>
+                  }
+                />
+                {badgeServidor("stripe")}
+              </div>
+            </>
           }
         />
         <GatewayCard
@@ -404,17 +698,49 @@ export default function IntegracionesPage() {
           fields={
             <>
               <SecretField
-                label="Client ID"
-                value={cfg.paypalClientId}
-                onChange={(v) => setCfg({ ...cfg, paypalClientId: v })}
+                label="Client ID (no se guarda salvo que lo pidas)"
+                value={ppClient}
+                onChange={(v) => setPpClient(v)}
                 placeholder="AcUQ…"
+                hint={avisoTokenPayPal(ppClient, "Client ID")}
               />
               <SecretField
-                label="Secret"
-                value={cfg.paypalSecret}
-                onChange={(v) => setCfg({ ...cfg, paypalSecret: v })}
+                label="Secret (no se guarda salvo que lo pidas)"
+                value={ppSecret}
+                onChange={(v) => setPpSecret(v)}
                 placeholder="EL…"
+                hint={avisoTokenPayPal(ppSecret, "Secret")}
               />
+              {tieneGuardadoPayPal && (
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                  <Lock className="mr-1 inline h-3 w-3" />
+                  Hay credenciales guardadas cifradas.
+                </p>
+              )}
+              <Toggle
+                on={cfg.paypalSaveToken}
+                onChange={(v) => setCfg({ ...cfg, paypalSaveToken: v })}
+                label={
+                  <>
+                    Guardar cifradas en este navegador
+                    <Tip text="Las cifra con tu contraseña (AES-256). Sin marcar, se usan solo en esa importación y se descartan." />
+                  </>
+                }
+              />
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/40">
+                <Toggle
+                  on={cfg.paypalUsarServidor}
+                  onChange={(v) => setCfg({ ...cfg, paypalUsarServidor: v })}
+                  label={
+                    <>
+                      <Server className="mr-1 inline h-3.5 w-3.5" />
+                      Usar credenciales del servidor
+                      <Tip text="Se configuran como PAYPAL_CLIENT_ID y PAYPAL_SECRET en Vercel y nunca llegan al navegador ni a GitHub." />
+                    </>
+                  }
+                />
+                {badgeServidor("paypal")}
+              </div>
             </>
           }
         />
@@ -492,6 +818,50 @@ export default function IntegracionesPage() {
         Lector de código de barras/QR y OCR de tickets: previstos en fase
         posterior.
       </p>
+
+      {pedidoClave && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setPedidoClave(false)} />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void confirmarClave();
+            }}
+            className={`relative z-10 w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900`}
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <Lock className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Descifrar token guardado
+              </h3>
+            </div>
+            <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+              Ingresá la contraseña de esta cuenta para descifrar el token
+              guardado. La clave se mantiene solo en memoria para esta sesión.
+            </p>
+            <Input
+              type="password"
+              value={claveText}
+              onChange={(e) => setClaveText(e.target.value)}
+              placeholder="••••••••"
+              autoFocus
+            />
+            {claveErr && (
+              <p className="mt-2 rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
+                {claveErr}
+              </p>
+            )}
+            <div className="mt-4 flex gap-2">
+              <Button type="submit" className="flex-1">
+                Descifrar
+              </Button>
+              <Button type="button" variant="white" onClick={() => setPedidoClave(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

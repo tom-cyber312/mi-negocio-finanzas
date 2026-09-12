@@ -79,13 +79,15 @@ export interface FiscalConfig {
 }
 
 export interface GatewayConfig {
-  mpToken: string;
   mpEnabled: boolean;
-  stripeSecret: string;
+  mpSaveToken: boolean;
+  mpUsarServidor: boolean;
   stripeEnabled: boolean;
-  paypalClientId: string;
-  paypalSecret: string;
+  stripeSaveToken: boolean;
+  stripeUsarServidor: boolean;
   paypalEnabled: boolean;
+  paypalSaveToken: boolean;
+  paypalUsarServidor: boolean;
 }
 
 export interface TransaccionExterna {

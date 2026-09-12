@@ -14,9 +14,16 @@ interface PpTx {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as { clientId: string; secret: string; from: string; to: string };
+  const body = (await req.json()) as { clientId?: string; secret?: string; from: string; to: string };
   const { clientId, secret, from, to } = body || {};
-  if (!clientId || !secret) return NextResponse.json({ error: "Faltan las credenciales de PayPal." }, { status: 400 });
+  // Prioridad: credenciales enviadas por el cliente, o variables de entorno (Vercel).
+  const idCliente = clientId || process.env.PAYPAL_CLIENT_ID;
+  const secreto = secret || process.env.PAYPAL_SECRET;
+  if (!idCliente || !secreto)
+    return NextResponse.json(
+      { error: "Faltan las credenciales de PayPal: cargalas en la app o configurá PAYPAL_CLIENT_ID y PAYPAL_SECRET en Vercel." },
+      { status: 400 }
+    );
 
   const startDate = new Date(from).toISOString();
   const endDate = new Date(new Date(to).getTime() + 86400000).toISOString();
@@ -25,7 +32,7 @@ export async function POST(req: Request) {
     const tokenResp = await fetch("https://api-m.paypal.com/v1/oauth2/token", {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${clientId}:${secret}`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${idCliente}:${secreto}`).toString("base64")}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: "grant_type=client_credentials",
@@ -39,6 +46,9 @@ export async function POST(req: Request) {
     if (!tokenData.access_token) return NextResponse.json({ error: "No se pudo obtener token de PayPal." }, { status: 502 });
 
     const url = `https://api-m.paypal.com/v1/reporting/transactions?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&fields=all&page_size=1000`;
+    // Nota: la API de Reportes de PayPal es "eventually consistent": las
+    // transacciones pueden tardar hasta 3 horas en aparecer. Si algo falta,
+    // conviene volver a importar un poco más tarde con el mismo rango.
     const resp = await fetch(url, {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
       signal: AbortSignal.timeout(30000),

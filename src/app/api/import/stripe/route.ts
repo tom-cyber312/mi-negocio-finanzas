@@ -17,9 +17,16 @@ interface StripeCharge {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as { secretKey: string; from: string; to: string };
+  const body = (await req.json()) as { secretKey?: string; from: string; to: string };
   const { secretKey, from, to } = body || {};
-  if (!secretKey) return NextResponse.json({ error: "Falta la clave secreta de Stripe." }, { status: 400 });
+  // Prioridad: clave enviada por el cliente, o clave del servidor (env Vercel).
+  let secret = secretKey;
+  if (!secret) secret = process.env.STRIPE_SECRET_KEY;
+  if (!secret)
+    return NextResponse.json(
+      { error: "No hay clave de Stripe: cargala en la app o configurá la variable STRIPE_SECRET_KEY en Vercel." },
+      { status: 400 }
+    );
 
   const gte = Math.floor(new Date(from).getTime() / 1000);
   const lte = Math.floor(new Date(to).getTime() / 1000);
@@ -33,7 +40,7 @@ export async function POST(req: Request) {
 
   try {
     const resp = await fetch(`https://api.stripe.com/v1/charges?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${secretKey}` },
+      headers: { Authorization: `Bearer ${secret}` },
       signal: AbortSignal.timeout(30000),
     });
     if (!resp.ok) {

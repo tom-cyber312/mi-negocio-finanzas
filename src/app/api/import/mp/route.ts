@@ -17,12 +17,19 @@ interface MpPago {
 
 export async function POST(req: Request) {
   const body = (await req.json()) as {
-    token: string;
+    token?: string;
     from: string;
     to: string;
   };
   const { token, from, to } = body || {};
-  if (!token) return NextResponse.json({ error: "Falta el token de acceso de Mercado Pago." }, { status: 400 });
+  // Prioridad: token enviado por el cliente, o token del servidor (env de Vercel).
+  let secret = token;
+  if (!secret) secret = process.env.MP_ACCESS_TOKEN;
+  if (!secret)
+    return NextResponse.json(
+      { error: "No hay token de Mercado Pago: cargalo en la app o configurá la variable MP_ACCESS_TOKEN en Vercel." },
+      { status: 400 }
+    );
 
   const out: TransaccionExterna[] = [];
   let error: string | null = null;
@@ -48,7 +55,7 @@ export async function POST(req: Request) {
     const url = `https://api.mercadopago.com/v1/payments/search?limit=500&range=date_created&begin_date=${encodeURIComponent(begin)}&end_date=${encodeURIComponent(endDateStr)}`;
     try {
       const resp = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${secret}` },
         signal: AbortSignal.timeout(30000),
       });
       if (!resp.ok) {
