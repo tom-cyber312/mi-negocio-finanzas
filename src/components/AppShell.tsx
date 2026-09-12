@@ -219,15 +219,24 @@ function LoginForm({
 }
 
 function LoginScreen() {
-  const { phase, crearCuenta, iniciarSesionCon, login, cuentas, cuentaActiva } =
+  const { crearCuenta, iniciarSesionCon, login, cuentas, cuentaActiva } =
     useApp();
-  const [adding, setAdding] = useState(false);
+  const [modo, setModo] = useState<"login" | "crear">(() =>
+    cuentas.length > 0 ? "login" : "crear"
+  );
 
   const crearYEntrar = async (nombre: string, email: string, pw: string) => {
     const cuenta = await crearCuenta(nombre, email, pw);
     const ok = await login(email, pw);
     if (!ok) iniciarSesionCon(cuenta.id);
   };
+
+  const tabClase = (activo: boolean) =>
+    `flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+      activo
+        ? "bg-emerald-600 text-white shadow-sm"
+        : "border border-zinc-200 text-zinc-600 hover:border-emerald-400 hover:text-emerald-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-emerald-500 dark:hover:text-emerald-400"
+    }`;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-4 dark:bg-zinc-950">
@@ -243,33 +252,49 @@ function LoginScreen() {
             Tu panel financiero personal
           </p>
         </div>
-        {phase === "setup" ? (
-          <CrearCuentaForm
-            descripcion="Identificá tu negocio con un nombre y un correo, y elegí una contraseña para protegerlo."
-            onDone={crearYEntrar}
-            botonLabel="Crear mi negocio"
-          />
-        ) : adding ? (
-          <CrearCuentaForm
-            descripcion="Agregá otro negocio con su propio nombre, correo y contraseña. Cada cuenta tendrá sus propios datos."
-            onDone={crearYEntrar}
-            onBack={() => setAdding(false)}
-            botonLabel="Crear cuenta"
-          />
+
+        <div className="mb-5 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setModo("login")}
+            className={tabClase(modo === "login")}
+          >
+            <LogIn className="h-4 w-4" />
+            Iniciar sesión
+          </button>
+          <button
+            type="button"
+            onClick={() => setModo("crear")}
+            className={tabClase(modo === "crear")}
+          >
+            <Store className="h-4 w-4" />
+            Crear negocio
+          </button>
+        </div>
+
+        {modo === "login" ? (
+          cuentas.length === 0 ? (
+            <div className="w-full max-w-sm space-y-3 rounded-xl border border-dashed border-zinc-300 p-5 text-center dark:border-zinc-700">
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                Todavía no hay ninguna cuenta en este dispositivo.
+              </p>
+              <Button variant="white" onClick={() => setModo("crear")} className="w-full">
+                Crear mi primer negocio
+              </Button>
+            </div>
+          ) : (
+            <LoginForm emailInicial={cuentaActiva?.email || ""} cuentas={cuentas} />
+          )
         ) : (
-          <>
-            <LoginForm
-              emailInicial={cuentaActiva?.email || ""}
-              cuentas={cuentas}
-            />
-            <button
-              onClick={() => setAdding(true)}
-              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-zinc-300 px-3 py-2.5 text-sm font-medium text-zinc-600 transition-colors hover:border-emerald-400 hover:text-emerald-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-emerald-500 dark:hover:text-emerald-400"
-            >
-              <UserPlus className="h-4 w-4" />
-              Agregar otra cuenta (otro negocio)
-            </button>
-          </>
+          <CrearCuentaForm
+            descripcion={
+              cuentas.length === 0
+                ? "Identificá tu negocio con un nombre y un correo, y elegí una contraseña para protegerlo."
+                : "Agregá otro negocio con su propio nombre, correo y contraseña. Cada cuenta tendrá sus propios datos."
+            }
+            onDone={crearYEntrar}
+            botonLabel={cuentas.length === 0 ? "Crear mi negocio" : "Crear cuenta"}
+          />
         )}
       </div>
     </div>

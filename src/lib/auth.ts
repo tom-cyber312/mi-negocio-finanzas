@@ -1,4 +1,44 @@
 const SESSION_KEY = "fin_sess";
+const SESSION_DURACION_MS = 30 * 24 * 3600 * 1000; // 30 días
+
+function leerSesion(): number {
+  try {
+    const v = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+    return Number(v || 0);
+  } catch {
+    return 0;
+  }
+}
+
+function escribirSesion(exp: number): void {
+  try {
+    localStorage.setItem(SESSION_KEY, String(exp));
+  } catch {
+    /* noop */
+  }
+  try {
+    sessionStorage.setItem(SESSION_KEY, String(exp));
+  } catch {
+    /* noop */
+  }
+}
+
+function borrarSesion(): void {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* noop */
+  }
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* noop */
+  }
+}
+
+export function openSession(): void {
+  escribirSesion(Date.now() + SESSION_DURACION_MS);
+}
 
 export async function sha256Hex(text: string): Promise<string> {
   const data = new TextEncoder().encode(text);
@@ -31,19 +71,11 @@ export async function verifyPasswordHash(
   return candidate === hash;
 }
 
-export function openSession(hours = 24 * 7): void {
-  const exp = Date.now() + hours * 3600 * 1000;
-  if (typeof sessionStorage === "undefined") return;
-  sessionStorage.setItem(SESSION_KEY, String(exp));
-}
-
 export function isSessionValid(): boolean {
-  if (typeof sessionStorage === "undefined") return false;
-  const exp = Number(sessionStorage.getItem(SESSION_KEY) || 0);
+  const exp = leerSesion();
   return !!exp && exp > Date.now();
 }
 
 export function closeSession(): void {
-  if (typeof sessionStorage === "undefined") return;
-  sessionStorage.removeItem(SESSION_KEY);
+  borrarSesion();
 }
