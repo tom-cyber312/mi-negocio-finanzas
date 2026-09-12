@@ -33,7 +33,8 @@ import { useApp } from "@/context/AppContext";
 import { Button, ConfirmDialog, Field, Input, Select } from "@/components/ui";
 import { CURRENCIES } from "@/lib/format";
 import { emailValido, type Cuenta } from "@/lib/accounts";
-import { cargarDatosEjemplo, clearAllData, exportarBackup, importarBackup } from "@/lib/db";
+import { cargarDatosEjemplo, clearAllData, db, eliminarBase, exportarBackup, importarBackup, nombreBaseDeCuenta } from "@/lib/db";
+import { DIAS_AVISO_BACKUP, getUltimoRespaldo, marcarRespaldo } from "@/lib/config";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard General", icon: LayoutDashboard },
@@ -86,7 +87,7 @@ function CrearCuentaForm({
     if (!emailValido(email)) {
       return setErr("Ingresá un correo válido, por ejemplo nombre@gmail.com.");
     }
-    if (pw.length < 4) return setErr("La contraseña debe tener al menos 4 caracteres.");
+    if (pw.length < 8) return setErr("La contraseña debe tener al menos 8 caracteres.");
     if (pw !== pw2) return setErr("Las contraseñas no coinciden.");
     setBusy(true);
     try {
@@ -338,13 +339,21 @@ function SettingsModal({
   const [renameVal, setRenameVal] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Cuenta | null>(null);
 
+  const [ahora] = useState(() => Date.now());
+  const ultimoRespaldo = getUltimoRespaldo();
+  const diasSinRespaldo = ultimoRespaldo
+    ? Math.floor((ahora - ultimoRespaldo) / 86400000)
+    : null;
+  const respaldoVencido =
+    diasSinRespaldo !== null && diasSinRespaldo > DIAS_AVISO_BACKUP;
+
   if (!open) return null;
 
   const changePwSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setMsg(null);
     setErr(null);
-    if (newPw.length < 4) return setErr("La nueva contraseña debe tener al menos 4 caracteres.");
+    if (newPw.length < 8) return setErr("La nueva contraseña debe tener al menos 8 caracteres.");
     if (newPw !== confirmPw) return setErr("La nueva contraseña no coincide.");
     const ok = await changePassword(oldPw, newPw);
     if (ok) {
@@ -362,7 +371,7 @@ function SettingsModal({
     setAErr(null);
     if (aNombre.trim().length === 0) return setAErr("Poné un nombre para el negocio.");
     if (!emailValido(aEmail)) return setAErr("Ingresá un gmail válido (nombre@gmail.com).");
-    if (aPw.length < 4) return setAErr("La contraseña debe tener al menos 4 caracteres.");
+    if (aPw.length < 8) return setAErr("La contraseña debe tener al menos 8 caracteres.");
     if (aPw !== aPw2) return setAErr("Las contraseñas no coinciden.");
     try {
       const c = await crearCuenta(aNombre.trim(), aEmail.trim(), aPw);
@@ -389,12 +398,19 @@ function SettingsModal({
 
   const confirmarEliminar = async () => {
     if (!deleteTarget) return;
+    const nombreBase = nombreBaseDeCuenta(deleteTarget.id);
     const eraActiva = eliminarCuenta(deleteTarget.id);
+    if (deleteTarget.id === "default") {
+      await clearAllData();
+    } else {
+      // Cerrar la conexión si es la base activa para poder eliminarla.
+      if (db.name === nombreBase) db.close();
+      await eliminarBase(nombreBase);
+    }
     if (eraActiva) {
-      if (deleteTarget.id === "default") await clearAllData();
       window.location.reload();
     } else {
-      setMsg(`Cuenta "${deleteTarget.nombre}" eliminada.`);
+      setMsg(`Cuenta "${deleteTarget.nombre}" eliminada con todos sus datos locales.`);
       setDeleteTarget(null);
     }
   };
@@ -610,7 +626,15 @@ function SettingsModal({
               >
                 Cargar datos de ejemplo
               </Button>
-              <Button variant="white" onClick={exportarBackup} title="Descargar respaldo JSON de la base local">
+              <Button
+                variant="white"
+                onClick={() => {
+                  exportarBackup();
+                  marcarRespaldo();
+                  setMsg("Respaldo exportado. Guardalo en un lugar seguro.");
+                }}
+                title="Descargar respaldo JSON de la base local"
+              >
                 <Download className="h-4 w-4" /> Exportar respaldo
               </Button>
               <label
@@ -645,6 +669,19 @@ function SettingsModal({
               respaldo te permite exportarlos y restaurarlos en cualquier
               dispositivo.
             </p>
+            {diasSinRespaldo === null ? (
+              <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                Todavía no tenés ningún respaldo. Exportalo para no perder tus datos.
+              </p>
+            ) : respaldoVencido ? (
+              <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                Hace {diasSinRespaldo} días que no exportás un respaldo.
+              </p>
+            ) : (
+              <p className="mt-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                Último respaldo: hace {diasSinRespaldo} día(s).
+              </p>
+            )}
           </section>
 
           <section>
@@ -707,8 +744,48 @@ function SettingsModal({
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmarEliminar}
         title="Eliminar cuenta"
-        message={`Se eliminará la cuenta "${deleteTarget?.nombre}" (${deleteTarget?.email}). Sus datos quedarán guardados en este navegador, pero no podrás volver a entrar con ella. ¿Continuar?`}
+        message={`Se eliminará la cuenta "${deleteTarget?.nombre}" (${deleteTarget?.email}) junto con todos sus datos guardados en este dispositivo. Esta acción no se puede deshacer. ¿Continuar?`}
       />
+    </div>
+  );
+}
+
+function BannerRespaldo() {
+  const [estado] = useState(() => {
+    const ult = getUltimoRespaldo();
+    return {
+      ult,
+      vencido:
+        ult === null || Date.now() - ult > DIAS_AVISO_BACKUP * 86400000,
+    };
+  });
+  const [oculto, setOculto] = useState(false);
+  if (oculto || !estado.vencido) return null;
+  return (
+    <div className="px-4 pt-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl items-start justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 sm:items-center">
+        <p className="text-xs text-amber-800 dark:text-amber-300">
+          Hace más de {DIAS_AVISO_BACKUP} días que no exportás un respaldo: tu
+          información vive solo en este dispositivo.
+          <button
+            onClick={() => {
+              exportarBackup();
+              marcarRespaldo();
+              setOculto(true);
+            }}
+            className="ml-2 font-semibold underline underline-offset-2 hover:no-underline"
+          >
+            Exportar ahora
+          </button>
+        </p>
+        <button
+          onClick={() => setOculto(true)}
+          className="shrink-0 rounded-lg p-1 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400"
+          aria-label="Cerrar aviso de respaldo"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -850,6 +927,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </button>
           </div>
         </header>
+
+        <BannerRespaldo />
 
         <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           {children}

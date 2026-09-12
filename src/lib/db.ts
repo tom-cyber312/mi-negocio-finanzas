@@ -32,8 +32,27 @@ export class FinDB extends Dexie {
 export const db = new FinDB(nombreBasePorCuenta());
 
 function nombreBasePorCuenta(): string {
-  const id = getCuentaActivaId();
+  return nombreBaseDeCuenta(getCuentaActivaId());
+}
+
+export function nombreBaseDeCuenta(id: string | null): string {
   return id && id !== "default" ? `finanzasDB_${id}` : "finanzasDB";
+}
+
+// Borra por completo la base IndexedDB de una cuenta (erasure total).
+// Noop si no existe o si el navegador no permite eliminarla.
+export function eliminarBase(name: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof indexedDB === "undefined") return resolve();
+    try {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
 }
 
 export async function saveProducto(p: Producto): Promise<number> {

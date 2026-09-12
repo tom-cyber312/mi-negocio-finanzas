@@ -146,3 +146,25 @@ export function setLimitesMonotributo(arr: { letra: string; limiteAnual: number 
     /* noop */
   }
 }
+
+const BACKUP_KEY = () => k("fin_last_backup");
+
+export const DIAS_AVISO_BACKUP = 14;
+
+export function getUltimoRespaldo(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = localStorage.getItem(BACKUP_KEY());
+    return v ? Number(v) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function marcarRespaldo(): void {
+  try {
+    localStorage.setItem(BACKUP_KEY(), String(Date.now()));
+  } catch {
+    /* noop */
+  }
+}

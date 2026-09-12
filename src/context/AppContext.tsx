@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { closeSession, hashPassword, isSessionValid, openSession, verifyPasswordHash } from "@/lib/auth";
+import { closeSession, esHashLegacy, hashPassword, isSessionValid, openSession, verifyPasswordHash } from "@/lib/auth";
 import {
   actualizarCuenta,
   crearCuenta as crearCuentaRegistrada,
@@ -128,6 +128,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (email: string, pw: string): Promise<boolean> => {
       const cuenta = await validarLogin(email, pw);
       if (!cuenta) return false;
+      // Migración: si el hash es legacy (SHA-256), lo actualizamos a PBKDF2.
+      if (esHashLegacy(cuenta.hash)) {
+        const hash = await hashPassword(pw);
+        actualizarCuenta({ ...cuenta, hash });
+        setCuentas(getCuentas());
+        refrescarCuentaActiva();
+      }
       try {
         await crearClave(pw);
       } catch {
@@ -136,7 +143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       iniciarSesionCon(cuenta.id);
       return true;
     },
-    [iniciarSesionCon]
+    [iniciarSesionCon, refrescarCuentaActiva]
   );
 
   const desbloquearClaves = useCallback(async (pw: string): Promise<boolean> => {
