@@ -10,7 +10,7 @@ const config: CapacitorConfig = {
   appName: "Mi Negocio Finanzas",
   webDir: "public",
   server: {
-    url: "https://finanzas-sandy-sigma.vercel.app",
+    url: "https://controldedinerox.vercel.app",
     cleartext: false,
   },
 };
