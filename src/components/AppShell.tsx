@@ -1,29 +1,22 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ArrowLeft,
-  CalendarRange,
+  Compass,
   Download,
-  LayoutDashboard,
   Lock,
   LogIn,
   LogOut,
   Menu,
   Moon,
-  Package,
   Pencil,
-  Plug,
-  Receipt,
   RefreshCw,
   Settings,
-  ShoppingCart,
-  Sparkles,
   Store,
   Sun,
-  Target,
   Trash2,
   Upload,
   UserPlus,
@@ -35,20 +28,16 @@ import { Button, ConfirmDialog, Field, Input, Select } from "@/components/ui";
 import { CURRENCIES } from "@/lib/format";
 import { emailValido, type Cuenta } from "@/lib/accounts";
 import { cargarDatosEjemplo, clearAllData, db, eliminarBase, exportarBackup, importarBackup, nombreBaseDeCuenta } from "@/lib/db";
-import { DIAS_AVISO_BACKUP, getUltimoRespaldo, marcarRespaldo } from "@/lib/config";
+import {
+  DIAS_AVISO_BACKUP,
+  getTourVisto,
+  getUltimoRespaldo,
+  marcarRespaldo,
+  setTourVisto,
+} from "@/lib/config";
 import { supabaseConfigurado } from "@/lib/supabase";
-
-const NAV = [
-  { href: "/dashboard", label: "Dashboard General", icon: LayoutDashboard },
-  { href: "/dashboard-mensual", label: "Dashboard Mensual", icon: CalendarRange },
-  { href: "/productos", label: "Productos", icon: Package },
-  { href: "/ventas", label: "Ventas", icon: ShoppingCart },
-  { href: "/gastos", label: "Gastos", icon: Wallet },
-  { href: "/presupuestos", label: "Presupuestos", icon: Target },
-  { href: "/facturacion", label: "Facturación", icon: Receipt },
-  { href: "/integraciones", label: "Integraciones", icon: Plug },
-  { href: "/recomendaciones", label: "Recomendaciones", icon: Sparkles },
-];
+import { GRUPOS_NAV } from "@/lib/nav";
+import Tour from "@/components/Tour";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Dashboard General",
@@ -839,6 +828,18 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "/dashboard";
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+
+  const cerrarTour = useCallback(() => {
+    setTourOpen(false);
+    setTourVisto();
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "open" || getTourVisto()) return;
+    const t = window.setTimeout(() => setTourOpen(true), 700);
+    return () => window.clearTimeout(t);
+  }, [phase]);
 
   if (phase === "loading") {
     return (
@@ -866,28 +867,45 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        {NAV.map((item) => {
-          const active = pathname === item.href;
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMenuOpen(false)}
-              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                active
-                  ? "bg-emerald-600/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
-                  : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
-              }`}
-            >
-              <Icon className="h-[18px] w-[18px]" />
-              {item.label}
-            </Link>
-          );
-        })}
+        {GRUPOS_NAV.map((grupo) => (
+          <div key={grupo.id} className="mb-2">
+            <p className="mb-1 px-3 pt-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              {grupo.titulo}
+            </p>
+            {grupo.items.map((item) => {
+              const active = pathname === item.href;
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMenuOpen(false)}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                    active
+                      ? "bg-emerald-600/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
+                  }`}
+                >
+                  <Icon className="h-[18px] w-[18px]" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="space-y-2 border-t border-zinc-200 px-3 py-3 dark:border-zinc-800">
+        <button
+          onClick={() => {
+            setMenuOpen(false);
+            setTourOpen(true);
+          }}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
+        >
+          <Compass className="h-[18px] w-[18px]" />
+          Recorrido guiado
+        </button>
         <button
           onClick={() => setSettingsOpen(true)}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
@@ -980,6 +998,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {tourOpen && <Tour onClose={cerrarTour} />}
     </div>
   );
 }

@@ -168,3 +168,22 @@ export function marcarRespaldo(): void {
     /* noop */
   }
 }
+
+const TOUR_KEY = "fin_tour_visto";
+
+export function getTourVisto(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(TOUR_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setTourVisto(): void {
+  try {
+    localStorage.setItem(TOUR_KEY, "1");
+  } catch {
+    /* noop */
+  }
+}
