@@ -94,15 +94,16 @@ export function mesKeyDeFecha(ts: number): string {
 /**
  * Factor para llevar un valor del mes `fromKey` al mes `toKey`, aplicando la
  * inflación acumulada entre ambos (valores nominales → reales).
- * Si no hay datos, devuelve 1 (sin ajuste).
+ * Solo ajusta hacia adelante (toKey posterior a fromKey); en otro caso
+ * devuelve 1 (sin ajuste).
  */
 export function factorInflacion(
   inflacion: InflacionMes[],
   fromKey: string,
   toKey: string
 ): number {
+  if (fromKey >= toKey) return 1;
   const map = new Map(inflacion.map((i) => [i.mesKey, i.variacionPct / 100]));
-  const from = fromKey.localeCompare(toKey);
   const months: string[] = [];
   const [fy, fm] = fromKey.split("-").map(Number);
   const [ty, tm] = toKey.split("-").map(Number);
@@ -117,7 +118,6 @@ export function factorInflacion(
     months.push(`${y}-${String(m).padStart(2, "0")}`);
   }
   let factor = 1;
-  if (from <= 0) return factor; // no ajustar hacia atrás
   for (const k of months) {
     const pct = map.get(k);
     if (pct != null) factor *= 1 + pct;
