@@ -43,10 +43,34 @@ requieren backend ni base de datos en la nube, por lo que la app se puede
 desplegar como sitio estático en Vercel. En **Ajustes** se puede cargar un
 demo con datos de ejemplo o borrar todo.
 
-> Nota: al ser almacenamiento local, los datos viven en el navegador donde se
-> usan. Para sincronización entre dispositivos habría que conectar una base
-> remota (p. ej. Supabase), pero la capa de datos en `src/lib/db.ts` está
-> aislada para facilitarlo.
+### Sincronización entre dispositivos (Supabase, opcional)
+
+Sin configuración extra no hay sincronización y cada dispositivo conserva sus
+propios datos. Para usar la **misma cuenta (negocio) en el celular y la PC**
+con los datos compartidos:
+
+1. Creá un proyecto gratis en [supabase.com](https://supabase.com).
+2. En el **SQL Editor** ejecutá el script `supabase/migrations/0001_inicial.sql`
+   (crea las tablas `cuentas` y `registros` con políticas RLS por propietario).
+3. En **Settings → API** copiá la *Project URL* y la *anon key*, y:
+   - incluí `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` en
+     `.env.local` para desarrollo, y
+   - cargalas también en Vercel (Project → Settings → Environment Variables):
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
+   ```
+4. Desplegá, iniciá sesión con el mismo correo/contraseña en ambos
+   dispositivos y en **Ajustes → Sincronización** tocá "Sincronizar ahora".
+
+Cada registro sincronizable lleva un `uid` y un `updatedAt`; al sincronizar se
+combina la base local con la nube con política de *last-write-wins*, y las
+eliminaciones se propagan mediante "tumbas". Sin conexión, todo sigue
+funcionando offline y se sincroniza en la siguiente apertura.
+
+> Nota: la moneda y los ajustes de apariencia son por dispositivo. La
+> sincronización cubre productos, ventas, gastos, presupuestos, facturas e
+> inflación.
 
 ## Estructura
 

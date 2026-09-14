@@ -16,6 +16,8 @@ export type Periodo = "todo" | "30d" | "90d" | "12m";
 
 export interface Producto {
   id?: number;
+  uid?: string;
+  updatedAt?: number;
   nombre: string;
   categoria: string;
   sku: string;
@@ -28,6 +30,8 @@ export interface Producto {
 
 export interface Venta {
   id?: number;
+  uid?: string;
+  updatedAt?: number;
   productoId: number | null;
   nombreProducto: string;
   cantidad: number;
@@ -42,12 +46,16 @@ export interface Venta {
 
 export interface Presupuesto {
   id?: number;
+  uid?: string;
+  updatedAt?: number;
   categoria: CategoriaGasto;
   montoMensual: number;
 }
 
 export interface Factura {
   id?: number;
+  uid?: string;
+  updatedAt?: number;
   tipo: "emitida" | "recibida";
   letra: "A" | "B" | "C";
   numero: string;
@@ -63,6 +71,8 @@ export interface Factura {
 
 export interface InflacionMes {
   id?: number;
+  uid?: string;
+  updatedAt?: number;
   mesKey: string; // "yyyy-mm"
   variacionPct: number;
 }
@@ -102,6 +112,8 @@ export interface TransaccionExterna {
 
 export interface Gasto {
   id?: number;
+  uid?: string;
+  updatedAt?: number;
   categoria: CategoriaGasto;
   descripcion: string;
   monto: number;

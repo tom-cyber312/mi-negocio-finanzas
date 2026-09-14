@@ -110,6 +110,11 @@ export function eliminarCuenta(id: string): Cuenta[] {
   return list;
 }
 
+/** Reemplaza la lista local con la que viene de la nube (tras login/sync). */
+export function reemplazarCuentas(list: Cuenta[]): void {
+  saveCuentas(list);
+}
+
 export function emailValido(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }

@@ -11,6 +11,7 @@ export class FinDB extends Dexie {
   presupuestos!: Table<Presupuesto, number>;
   facturas!: Table<Factura, number>;
   inflacion!: Table<InflacionMes, number>;
+  sync_marcas!: Table<MarcaSync, number>;
 
   constructor(name = "finanzasDB") {
     super(name);
@@ -27,10 +28,63 @@ export class FinDB extends Dexie {
       facturas: "++id, fecha, tipo",
       inflacion: "++id, mesKey",
     });
+    this.version(3).stores({
+      productos: "++id, uid, nombre, categoria, sku",
+      ventas: "++id, uid, productoId, fecha, metodoPago",
+      gastos: "++id, uid, fecha, categoria, recurrente",
+      presupuestos: "++id, uid, categoria",
+      facturas: "++id, uid, fecha, tipo",
+      inflacion: "++id, uid, mesKey",
+      sync_marcas: "++id, tabla, uid, ts",
+    });
   }
 }
 
 export const db = new FinDB(nombreBasePorCuenta());
+
+// Marca de borrado local: se crea al eliminar una fila con `uid` y el motor
+// de sync la usa para propagar la baja a otros dispositivos.
+export interface MarcaSync {
+  id?: number;
+  tabla: string;
+  uid: string;
+  ts: number;
+}
+
+// Registro de eliminaciones locales para la sincronización (tombstones).
+// Cada borrado de una fila con `uid` deja una marca; el motor de sync la usa
+// para propagar la baja a otros dispositivos sin "revivir" el registro.
+function registrarMarcaBorrado(
+  tabla: "productos" | "ventas" | "gastos" | "presupuestos" | "facturas" | "inflacion",
+  uid: string | undefined
+): void {
+  if (!uid) return;
+  db.sync_marcas.add({ tabla, uid, ts: Date.now() }).catch(() => undefined);
+}
+
+[
+  db.productos,
+  db.ventas,
+  db.gastos,
+  db.presupuestos,
+  db.facturas,
+  db.inflacion,
+].forEach((tabla) => {
+  const t = tabla as typeof db.productos & { hook: unknown };
+  const hook = (t.hook as {
+    failing?: unknown;
+    deleting: { subscribe(fn: (pk: unknown, obj: { uid?: string }) => void): void };
+  }).deleting;
+  hook.subscribe((_pk, obj) => {
+    registrarMarcaBorrado((t.name as string) as
+      | "productos"
+      | "ventas"
+      | "gastos"
+      | "presupuestos"
+      | "facturas"
+      | "inflacion", obj?.uid);
+  });
+});
 
 function nombreBasePorCuenta(): string {
   return nombreBaseDeCuenta(getCuentaActivaId());
@@ -56,6 +110,14 @@ export function eliminarBase(name: string): Promise<void> {
   });
 }
 
+export function uidNuevo(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
 export async function saveProducto(p: Producto): Promise<number> {
   if (p.id) {
     await db.productos.update(p.id, {
@@ -66,12 +128,15 @@ export async function saveProducto(p: Producto): Promise<number> {
       precio: p.precio,
       stock: p.stock,
       umbralStock: p.umbralStock,
+      updatedAt: Date.now(),
     });
     return p.id;
   }
   return db.productos.add({
     ...p,
-    createdAt: Date.now(),
+    uid: p.uid ?? uidNuevo(),
+    updatedAt: Date.now(),
+    createdAt: Date.now() ?? p.createdAt,
   });
 }
 
@@ -93,6 +158,8 @@ export async function registrarVenta(
 
     const id = await db.ventas.add({
       ...v,
+      uid: uidNuevo(),
+      updatedAt: Date.now(),
       nombreProducto: prod ? prod.nombre : "Venta",
       costoUnitario: prod ? prod.costo : 0,
     });
@@ -108,6 +175,8 @@ export async function registrarVenta(
 export async function agregarVentaExterna(v: Omit<Venta, "id" | "costoUnitario">): Promise<number> {
   return db.ventas.add({
     ...v,
+    uid: uidNuevo(),
+    updatedAt: Date.now(),
     costoUnitario: 0,
     externa: true,
   });
@@ -135,10 +204,11 @@ export async function saveGasto(g: Gasto): Promise<number> {
       monto: g.monto,
       fecha: g.fecha,
       recurrente: g.recurrente,
+      updatedAt: Date.now(),
     });
     return g.id;
   }
-  return db.gastos.add(g);
+  return db.gastos.add({ ...g, uid: g.uid ?? uidNuevo(), updatedAt: Date.now() });
 }
 
 export async function deleteGasto(id: number): Promise<void> {
@@ -148,10 +218,18 @@ export async function deleteGasto(id: number): Promise<void> {
 export async function savePresupuesto(p: Presupuesto): Promise<number> {
   const exist = await db.presupuestos.where("categoria").equals(p.categoria).first();
   if (exist) {
-    await db.presupuestos.update(exist.id!, { montoMensual: p.montoMensual });
+    await db.presupuestos.update(exist.id!, {
+      montoMensual: p.montoMensual,
+      updatedAt: Date.now(),
+    });
     return exist.id!;
   }
-  return db.presupuestos.add({ categoria: p.categoria, montoMensual: p.montoMensual });
+  return db.presupuestos.add({
+    categoria: p.categoria,
+    montoMensual: p.montoMensual,
+    uid: p.uid ?? uidNuevo(),
+    updatedAt: Date.now(),
+  });
 }
 
 export async function saveFactura(f: Factura): Promise<number> {
@@ -168,10 +246,11 @@ export async function saveFactura(f: Factura): Promise<number> {
       detalle: f.detalle,
       ventaId: f.ventaId,
       gastoId: f.gastoId,
+      updatedAt: Date.now(),
     });
     return f.id;
   }
-  return db.facturas.add(f);
+  return db.facturas.add({ ...f, uid: f.uid ?? uidNuevo(), updatedAt: Date.now() });
 }
 
 export async function deleteFactura(id: number): Promise<void> {
@@ -181,10 +260,18 @@ export async function deleteFactura(id: number): Promise<void> {
 export async function saveInflacion(m: InflacionMes): Promise<number> {
   const exist = await db.inflacion.where("mesKey").equals(m.mesKey).first();
   if (exist) {
-    await db.inflacion.update(exist.id!, { variacionPct: m.variacionPct });
+    await db.inflacion.update(exist.id!, {
+      variacionPct: m.variacionPct,
+      updatedAt: Date.now(),
+    });
     return exist.id!;
   }
-  return db.inflacion.add({ mesKey: m.mesKey, variacionPct: m.variacionPct });
+  return db.inflacion.add({
+    mesKey: m.mesKey,
+    variacionPct: m.variacionPct,
+    uid: m.uid ?? uidNuevo(),
+    updatedAt: Date.now(),
+  });
 }
 
 export async function deleteInflacion(id: number): Promise<void> {

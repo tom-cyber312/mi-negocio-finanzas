@@ -17,6 +17,7 @@ import {
   Pencil,
   Plug,
   Receipt,
+  RefreshCw,
   Settings,
   ShoppingCart,
   Sparkles,
@@ -35,6 +36,7 @@ import { CURRENCIES } from "@/lib/format";
 import { emailValido, type Cuenta } from "@/lib/accounts";
 import { cargarDatosEjemplo, clearAllData, db, eliminarBase, exportarBackup, importarBackup, nombreBaseDeCuenta } from "@/lib/db";
 import { DIAS_AVISO_BACKUP, getUltimoRespaldo, marcarRespaldo } from "@/lib/config";
+import { supabaseConfigurado } from "@/lib/supabase";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard General", icon: LayoutDashboard },
@@ -321,6 +323,8 @@ function SettingsModal({
     renombrarCuenta,
     eliminarCuenta,
     cambiarCuenta,
+    syncAhora,
+    estadoSync,
   } = useApp();
   const [oldPw, setOldPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -682,6 +686,46 @@ function SettingsModal({
                 Último respaldo: hace {diasSinRespaldo} día(s).
               </p>
             )}
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Sincronización entre dispositivos
+            </h3>
+            <div className="rounded-xl border border-zinc-200 p-3 dark:border-zinc-700">
+              <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
+                {supabaseConfigurado()
+                  ? "Con la misma cuenta iniciada en tu celular y en tu PC, los datos se comparten automáticamente (productos, ventas, gastos, presupuestos, facturas e inflación)."
+                  : "La sincronización no está configurada en esta app: cada dispositivo conserva sus propios datos. Si querés usar la misma cuenta en varios dispositivos, configurá Supabase."}
+              </p>
+              {supabaseConfigurado() && (
+                <div className="mt-3">
+                  <Button
+                    size="sm"
+                    variant="white"
+                    disabled={estadoSync.sincronizando}
+                    onClick={() => void syncAhora()}
+                  >
+                    <RefreshCw
+                      className={`h-4 w-4 ${estadoSync.sincronizando ? "animate-spin" : ""}`}
+                    />
+                    {estadoSync.sincronizando ? "Sincronizando…" : "Sincronizar ahora"}
+                  </Button>
+                  {estadoSync.ultimaSync && (
+                    <p className="mt-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      Última: {estadoSync.ultimaSync.subidos} subidos ·{" "}
+                      {estadoSync.ultimaSync.bajados} recibidos ·{" "}
+                      {estadoSync.ultimaSync.borrados} eliminados.
+                    </p>
+                  )}
+                  {estadoSync.error && (
+                    <p className="mt-2 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                      {estadoSync.error}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </section>
 
           <section>
