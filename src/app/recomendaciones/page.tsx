@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import Link from "next/link";
 import {
@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Copy,
   Info,
+  RefreshCw,
   ShieldAlert,
   Sparkles,
 } from "lucide-react";
@@ -18,8 +19,13 @@ import {
   construirPromptParaIA,
   generarRecomendaciones,
 } from "@/lib/recommendations";
-import { fmtMoney } from "@/lib/format";
-import { Card, CardHeader, Skeleton } from "@/components/ui";
+import {
+  getRecomendacionesGuardadas,
+  setRecomendacionesGuardadas,
+  type RecomendacionesGuardadas,
+} from "@/lib/config";
+import { fmtDate, fmtMoney } from "@/lib/format";
+import { Button, Card, CardHeader, Skeleton } from "@/components/ui";
 
 const TIPO_STYLE: Record<
   Recomendacion["tipo"],
@@ -57,11 +63,43 @@ export default function RecomendacionesPage() {
   const gastos = useLiveQuery(() => db.gastos.toArray(), []);
 
   const [copied, setCopied] = useState(false);
+  const [guardadas, setGuardadas] = useState<RecomendacionesGuardadas | null>(
+    () => getRecomendacionesGuardadas()
+  );
+  const pendienteRef = useRef(false);
 
-  const recomendaciones = useMemo(() => {
-    if (!productos || !ventas || !gastos) return [];
-    return generarRecomendaciones({ productos, ventas, gastos });
-  }, [productos, ventas, gastos]);
+  const ahora = useMemo(() => new Date(), []);
+  const mesClave = `${ahora.getFullYear()}-${ahora.getMonth()}`;
+
+  const generarYGuardar = useCallback(() => {
+    if (!productos || !ventas || !gastos) return;
+    const items = generarRecomendaciones({ productos, ventas, gastos });
+    const recs: RecomendacionesGuardadas = {
+      mes: mesClave,
+      actualizado: Date.now(),
+      items,
+    };
+    setRecomendacionesGuardadas(recs);
+    setGuardadas(recs);
+  }, [productos, ventas, gastos, mesClave]);
+
+  useEffect(() => {
+    if (!productos || !ventas || !gastos) return;
+    if (guardadas && guardadas.mes === mesClave) return;
+    pendienteRef.current = true;
+    const raf = requestAnimationFrame(() => {
+      if (pendienteRef.current) {
+        pendienteRef.current = false;
+        generarYGuardar();
+      }
+    });
+    return () => {
+      pendienteRef.current = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [productos, ventas, gastos, guardadas, mesClave, generarYGuardar]);
+
+  const recomendaciones = guardadas?.items ?? [];
 
   const prompt = useMemo(() => {
     if (!productos || !ventas || !gastos) return "";
@@ -102,11 +140,11 @@ export default function RecomendacionesPage() {
             Recomendaciones inteligentes
           </h2>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Generadas automáticamente con reglas sobre tus datos. Sin IA
-            externa, pero lista para conectar una.
+            Se renuevan una vez por mes con tus datos, para no abrumarte. Si
+            querés verlas de inmediato, pedilas cuando quieras.
           </p>
         </div>
-        <div className="mt-3 flex items-center gap-2 sm:mt-0">
+        <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-0">
           {dangerCount > 0 && (
             <span className="rounded-full bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
               {dangerCount} crítica(s)
@@ -117,6 +155,15 @@ export default function RecomendacionesPage() {
               {warningCount} advertencia(s)
             </span>
           )}
+          {guardadas && (
+            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+              Actualizado: {fmtDate(guardadas.actualizado)}
+            </span>
+          )}
+          <Button variant="white" onClick={generarYGuardar}>
+            <RefreshCw className="h-4 w-4" />
+            Pedir recomendaciones ahora
+          </Button>
         </div>
       </div>
 

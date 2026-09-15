@@ -21,65 +21,70 @@ export interface DatosParaAnalisis {
 
 export function generarRecomendaciones(
   datos: DatosParaAnalisis,
-  now = new Date()
+  now = new Date(),
+  tope = 3
 ): Recomendacion[] {
   const { productos, ventas, gastos, presupuestos, fiscal, limitesMonotributo } = datos;
   const out: Recomendacion[] = [];
   const nowTs = now.getTime();
 
-  // 1. Stock bajo / agotado
-  for (const p of productos) {
-    if (p.stock === 0) {
-      out.push({
-        id: `stock0-${p.id}`,
-        tipo: "danger",
-        titulo: `"${p.nombre}" agotado`,
-        descripcion: `No queda stock y el costo de reposición es de tu registro normal. Tené en cuenta reabastecer para no perder ventas.`,
-        accion: "Ir a Productos",
-        link: "/productos",
-      });
-    } else if (isStockBajo(p)) {
-      out.push({
-        id: `stockbajo-${p.id}`,
-        tipo: "warning",
-        titulo: `Stock bajo: ${p.nombre}`,
-        descripcion: `Quedan ${p.stock} unidades (umbral: ${p.umbralStock}). Considerá reponer antes de quedarte sin stock.`,
-        accion: "Ir a Productos",
-        link: "/productos",
-      });
-    }
+  const nombres = (lista: Producto[], limite = 3): string => {
+    const vistos = lista.slice(0, limite).map((p) => `"${p.nombre}"`).join(", ");
+    return lista.length > limite ? `${vistos} y ${lista.length - limite} más` : vistos;
+  };
+
+  // 1. Stock bajo / agotado (agrupado)
+  const agotados = productos.filter((p) => p.stock === 0);
+  const bajos = productos.filter((p) => p.stock > 0 && isStockBajo(p));
+  if (agotados.length > 0 || bajos.length > 0) {
+    const titulo =
+      agotados.length > 0 && bajos.length > 0
+        ? `${agotados.length} agotado(s) y ${bajos.length} con stock bajo`
+        : agotados.length > 0
+          ? `${agotados.length} producto(s) agotado(s)`
+          : `${bajos.length} producto(s) con stock bajo`;
+    out.push({
+      id: "productos-reponer",
+      tipo: agotados.length > 0 ? "danger" : "warning",
+      titulo,
+      descripcion: `${nombres([...agotados, ...bajos])}. Reponer a tiempo evita perder ventas.`,
+      accion: "Ir a Productos",
+      link: "/productos",
+    });
   }
 
-  // 2. Margen muy bajo
-  for (const p of productos) {
-    const m = marginPct(p);
-    if (p.stock > 0 && p.precio > 0 && m < 25) {
-      out.push({
-        id: `margen-${p.id}`,
-        tipo: m < 10 ? "danger" : "warning",
-        titulo: `Margen muy bajo en ${p.nombre}`,
-        descripcion: `El margen actual es de ${m.toFixed(1)}%. Para llegar al menos al 25%, el precio sugerido sería ≈ $${(p.costo / (1 - 0.25)).toFixed(0)}.`,
-        accion: "Ver producto",
-        link: "/productos",
-      });
-    }
+  // 2. Margen muy bajo (agrupado)
+  const margenBajo = productos.filter(
+    (p) => p.stock > 0 && p.precio > 0 && marginPct(p) < 25
+  );
+  if (margenBajo.length > 0) {
+    const peor = margenBajo.reduce((a, b) =>
+      marginPct(a) < marginPct(b) ? a : b
+    );
+    out.push({
+      id: "margen-bajo",
+      tipo: marginPct(peor) < 10 ? "danger" : "warning",
+      titulo: `${margenBajo.length} producto(s) con margen menor al 25%`,
+      descripcion: `${nombres(margenBajo)}. El más comprometido es "${peor.nombre}" con ${marginPct(peor).toFixed(1)}%. Revisá precios o costos.`,
+      accion: "Ver producto",
+      link: "/productos",
+    });
   }
 
-  // 3. Stock estancado (sin ventas en 60 días)
-  for (const p of productos) {
-    if (p.stock > 0) {
-      const dias = diasSinVender(ventas, p.id as number, nowTs);
-      if (dias >= 60) {
-        out.push({
-          id: `estancado-${p.id}`,
-          tipo: "warning",
-          titulo: `Stock estancado: ${p.nombre}`,
-          descripcion: `No se vende hace ${dias === Infinity ? "mucho tiempo" : `${dias} días`} y tenés ${p.stock} unidades. Considerá una promoción, pack o reducción de precio.`,
-          accion: "Definir promoción",
-          link: "/productos",
-        });
-      }
-    }
+  // 3. Stock estancado (sin ventas en 60 días, agrupado)
+  const estancados = productos.filter((p) => {
+    if (p.stock <= 0) return false;
+    return diasSinVender(ventas, p.id as number, nowTs) >= 60;
+  });
+  if (estancados.length > 0) {
+    out.push({
+      id: "stock-estancado",
+      tipo: "warning",
+      titulo: `${estancados.length} producto(s) sin moverse hace más de 60 días`,
+      descripcion: `${nombres(estancados)}. Considerá promociones o packs para liberar capital.`,
+      accion: "Definir promoción",
+      link: "/productos",
+    });
   }
 
   // 4. Publicidad con bajo retorno (últimos 4 meses)
@@ -236,9 +241,9 @@ export function generarRecomendaciones(
     }
   }
 
-  // Ordenar por severidad
+  // Ordenar por severidad y dejar solo las más relevantes
   const order = { danger: 0, warning: 1, info: 2, success: 3 };
-  return out.sort((a, b) => order[a.tipo] - order[b.tipo]);
+  return out.sort((a, b) => order[a.tipo] - order[b.tipo]).slice(0, tope);
 }
 
 /**

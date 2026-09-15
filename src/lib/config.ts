@@ -1,4 +1,4 @@
-import type { FiscalConfig, GatewayConfig } from "./types";
+import type { FiscalConfig, GatewayConfig, Recomendacion } from "./types";
 import { getCuentaActivaId } from "./accounts";
 
 function k(base: string): string {
@@ -183,6 +183,35 @@ export function getTourVisto(): boolean {
 export function setTourVisto(): void {
   try {
     localStorage.setItem(TOUR_KEY, "1");
+  } catch {
+    /* noop */
+  }
+}
+
+export interface RecomendacionesGuardadas {
+  mes: string;
+  actualizado: number;
+  items: Recomendacion[];
+}
+
+const RECS_KEY = () => k("fin_recomendaciones");
+
+export function getRecomendacionesGuardadas(): RecomendacionesGuardadas | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(RECS_KEY());
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || !Array.isArray(p.items)) return null;
+    return p as RecomendacionesGuardadas;
+  } catch {
+    return null;
+  }
+}
+
+export function setRecomendacionesGuardadas(recs: RecomendacionesGuardadas): void {
+  try {
+    localStorage.setItem(RECS_KEY(), JSON.stringify(recs));
   } catch {
     /* noop */
   }
