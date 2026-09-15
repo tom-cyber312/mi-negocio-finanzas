@@ -13,6 +13,7 @@ export const SLOTS = {
   stripe: "stripe_secret",
   paypalClient: "paypal_client",
   paypalSecret: "paypal_secret",
+  ia: "ia_api_key",
 } as const;
 
 export type Slot = (typeof SLOTS)[keyof typeof SLOTS];
@@ -124,6 +125,47 @@ export async function leerSecreto(slot: Slot): Promise<string | null> {
 export function borrarSecreto(slot: Slot): void {
   const act = getCuentaActivaId() || "default";
   localStorage.removeItem(slotKeyFor(slot, act));
+}
+
+/** Cifra texto arbitrario con la clave derivada de la cuenta (AES-GCM).
+ * Devuelve el IV y el texto cifrado en base64url para guardar donde quieras. */
+export async function encriptarTexto(
+  plain: string
+): Promise<{ iv: string; ct: string }> {
+  if (!claveDisponible())
+    throw new Error(
+      "No hay sesión de claves activa. Ingresá la contraseña de la cuenta para poder cifrar."
+    );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    claveActiva!.key,
+    new TextEncoder().encode(plain)
+  );
+  return { iv: base64(iv), ct: base64(ct) };
+}
+
+/** Descifra texto cifrado con encriptarTexto. */
+export async function desencriptarTexto(
+  ivB64: string,
+  ctB64: string
+): Promise<string> {
+  if (!claveDisponible())
+    throw new Error(
+      "No hay sesión de claves activa. Ingresá la contraseña de la cuenta para poder desencriptar."
+    );
+  try {
+    const pt = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: fromBase64(ivB64) },
+      claveActiva!.key,
+      fromBase64(ctB64)
+    );
+    return new TextDecoder().decode(pt);
+  } catch {
+    throw new Error(
+      "No se pudo desencriptar. ¿Usaste la misma contraseña de la cuenta?"
+    );
+  }
 }
 
 export function limpiarSecretosDeCuenta(id: string): void {

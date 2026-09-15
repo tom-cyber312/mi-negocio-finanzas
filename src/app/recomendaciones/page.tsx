@@ -26,6 +26,7 @@ import {
 } from "@/lib/config";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { Button, Card, CardHeader, Skeleton } from "@/components/ui";
+import AsistenteIA from "@/components/AsistenteIA";
 
 const TIPO_STYLE: Record<
   Recomendacion["tipo"],
@@ -285,6 +286,8 @@ export default function RecomendacionesPage() {
           </pre>
         </div>
       </Card>
+
+      <AsistenteIA datos={{ productos, ventas, gastos }} />
     </div>
   );
 }

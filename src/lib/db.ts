@@ -310,9 +310,34 @@ export async function exportarBackup(): Promise<void> {
 export async function importarBackup(file: File): Promise<number> {
   const text = await file.text();
   const data = JSON.parse(text);
-  if (!data || !Array.isArray(data.productos)) {
+  if (!backupValido(data)) {
     throw new Error("El archivo no parece ser un respaldo válido.");
   }
+  return aplicarBackupData(data);
+}
+
+export type BackupData = {
+  app: string;
+  version: number;
+  exportado: string;
+  productos: unknown[];
+  ventas: unknown[];
+  gastos: unknown[];
+  presupuestos: unknown[];
+  facturas: unknown[];
+  inflacion: unknown[];
+};
+
+export function backupValido(data: unknown): data is BackupData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    Array.isArray((data as BackupData).productos) &&
+    Array.isArray((data as BackupData).ventas)
+  );
+}
+
+export async function aplicarBackupData(data: BackupData): Promise<number> {
   await db.transaction(
     "rw",
     [db.productos, db.ventas, db.gastos, db.presupuestos, db.facturas, db.inflacion],
@@ -325,12 +350,12 @@ export async function importarBackup(file: File): Promise<number> {
       db.facturas.clear(),
       db.inflacion.clear(),
     ]);
-    await db.productos.bulkAdd(data.productos || []);
-    await db.ventas.bulkAdd(data.ventas || []);
-    await db.gastos.bulkAdd(data.gastos || []);
-    await db.presupuestos.bulkAdd(data.presupuestos || []);
-    await db.facturas.bulkAdd(data.facturas || []);
-    await db.inflacion.bulkAdd(data.inflacion || []);
+    await db.productos.bulkAdd((data.productos || []) as Producto[]);
+    await db.ventas.bulkAdd((data.ventas || []) as Venta[]);
+    await db.gastos.bulkAdd((data.gastos || []) as Gasto[]);
+    await db.presupuestos.bulkAdd((data.presupuestos || []) as Presupuesto[]);
+    await db.facturas.bulkAdd((data.facturas || []) as Factura[]);
+    await db.inflacion.bulkAdd((data.inflacion || []) as InflacionMes[]);
   });
   return (data.ventas || []).length;
 }

@@ -311,3 +311,127 @@ export async function generarFacturaPDF(f: Factura, fiscal: FiscalConfig) {
     data: doc.output("blob"),
   });
 }
+
+/** Informe mensual "Pro": portada con resumen, mejores productos, gastos
+ * por categoría, métodos de pago y estado general del negocio. */
+export async function exportarPDFInformePro(
+  year: number,
+  monthIdx: number,
+  ventas: Venta[],
+  gastos: Gasto[],
+  ingresos: number,
+  egresos: number,
+  productos: Producto[],
+  negocioNombre = "Mi Negocio"
+) {
+  const doc = new jsPDF({ format: "a4" });
+
+  doc.setFillColor(16, 185, 129);
+  doc.rect(0, 0, 210, 26, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.text("INFORME MENSUAL PROFESIONAL", 14, 12);
+  doc.setFontSize(10);
+  doc.text(negocioNombre, 14, 18);
+  doc.text(`${MESES[monthIdx]} ${year}`, 196, 18, { align: "right" });
+  doc.setTextColor(0, 0, 0);
+
+  doc.setFontSize(9);
+  doc.text(`Generado el ${fmtDate(Date.now())} por Mi Negocio — Finanzas`, 14, 34);
+
+  type DocWithTable = jsPDF & { lastAutoTable?: { finalY: number } };
+  const lastY = (d: jsPDF, fb: number): number =>
+    (d as DocWithTable).lastAutoTable?.finalY ?? fb;
+
+  autoTable(doc, {
+    startY: 38,
+    head: [["Concepto", "Monto"]],
+    body: [
+      ["Ingresos del mes", money(ingresos)],
+      ["Egresos del mes", money(egresos)],
+    ],
+    foot: [["Balance neto", money(ingresos - egresos)]],
+    theme: "grid",
+    headStyles: { fillColor: [16, 185, 129] },
+    footStyles: { fillColor: [16, 185, 129], textColor: 255, fontStyle: "bold" },
+  });
+
+  const top = topProductosMes(ventas).slice(0, 8);
+  if (top.length) {
+    autoTable(doc, {
+      startY: lastY(doc, 52) + 8,
+      head: [["Producto", "Unidades", "Venta total", "Utilidad"]],
+      body: top.map((p) => [p.nombre, String(p.cant), money(p.total), money(p.util)]),
+      headStyles: { fillColor: [16, 185, 129] },
+      styles: { fontSize: 9 },
+    });
+  }
+
+  const catGasto = new Map<string, number>();
+  for (const g of gastos) catGasto.set(g.categoria, (catGasto.get(g.categoria) || 0) + g.monto);
+  if (catGasto.size) {
+    autoTable(doc, {
+      startY: lastY(doc, 60) + 8,
+      head: [["Gastos por categoría", "Monto"]],
+      body: Array.from(catGasto.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([c, m]) => [c, money(m)]),
+      headStyles: { fillColor: [139, 92, 246] },
+      styles: { fontSize: 9 },
+    });
+  }
+
+  const met = new Map<string, number>();
+  for (const v of ventas) met.set(v.metodoPago, (met.get(v.metodoPago) || 0) + v.cantidad * v.precioUnitario);
+  if (met.size) {
+    autoTable(doc, {
+      startY: lastY(doc, 60) + 8,
+      head: [["Método de pago", "Monto"]],
+      body: Array.from(met.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([m, t]) => [m, money(t)]),
+      headStyles: { fillColor: [251, 191, 36], textColor: 0 },
+      styles: { fontSize: 9 },
+    });
+  }
+
+  autoTable(doc, {
+    startY: lastY(doc, 60) + 8,
+    body: [
+      [
+        `Estado general: ${ventas.length} ventas, ${gastos.length} gastos, ${productos.length} productos relevados.`,
+        "",
+      ],
+    ],
+    theme: "plain",
+    styles: { fontSize: 9, textColor: [82, 82, 91] },
+  });
+
+  await guardarArchivo({
+    nombre: `informe-pro-${MESES[monthIdx].toLowerCase()}-${year}.pdf`,
+    data: doc.output("blob"),
+  });
+}
+
+function topProductosMes(ventas: Venta[]): {
+  nombre: string;
+  cant: number;
+  total: number;
+  util: number;
+}[] {
+  const map = new Map<string, { nombre: string; cant: number; total: number; util: number }>();
+  for (const v of ventas) {
+    const cur =
+      map.get(v.nombreProducto) || {
+        nombre: v.nombreProducto,
+        cant: 0,
+        total: 0,
+        util: 0,
+      };
+    cur.cant += v.cantidad;
+    cur.total += v.cantidad * v.precioUnitario;
+    cur.util = (v.precioUnitario - v.costoUnitario) * v.cantidad + cur.util;
+    map.set(v.nombreProducto, cur);
+  }
+  return Array.from(map.values()).sort((a, b) => b.util - a.util);
+}

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   ArrowLeft,
   Compass,
+  Crown,
   Download,
   Lock,
   LogIn,
@@ -37,7 +38,20 @@ import {
 } from "@/lib/config";
 import { supabaseConfigurado } from "@/lib/supabase";
 import { GRUPOS_NAV } from "@/lib/nav";
+import {
+  desactivarPro,
+  getProGuardado,
+  verificarLicenciaPro,
+  type LicenciaPro,
+} from "@/lib/license";
+import {
+  crearRespaldoNube,
+  getUltimoRespaldoNube,
+  restaurarRespaldoNube,
+  respaldoVencido as respaldoNubeVencido,
+} from "@/lib/backupCloud";
 import Tour from "@/components/Tour";
+import ProAutoRespaldo from "@/components/ProAutoRespaldo";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Dashboard General",
@@ -327,6 +341,16 @@ function SettingsModal({
   const [err, setErr] = useState<string | null>(null);
   const [confirmWipe, setConfirmWipe] = useState(false);
 
+  const [licencia, setLicencia] = useState<LicenciaPro | null>(() =>
+    getProGuardado()
+  );
+  const [cliKey, setCliKey] = useState("");
+  const [licErr, setLicErr] = useState<string | null>(null);
+  const [licMsg, setLicMsg] = useState<string | null>(null);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudMsg, setCloudMsg] = useState<string | null>(null);
+  const [cloudErr, setCloudErr] = useState<string | null>(null);
+
   const [addMode, setAddMode] = useState(false);
   const [aNombre, setANombre] = useState("");
   const [aEmail, setAEmail] = useState("");
@@ -392,6 +416,50 @@ function SettingsModal({
     setRenameId(null);
     setRenameVal("");
     setMsg("Nombre de la cuenta actualizado.");
+  };
+
+  const activarPro = async (e: FormEvent) => {
+    e.preventDefault();
+    setLicErr(null);
+    setLicMsg(null);
+    const r = await verificarLicenciaPro(cliKey);
+    if (r.ok) {
+      setLicencia(getProGuardado());
+      setCliKey("");
+      setLicMsg(r.mensaje);
+    } else {
+      setLicErr(r.mensaje);
+    }
+  };
+
+  const respaldarNube = async () => {
+    setCloudBusy(true);
+    setCloudMsg(null);
+    setCloudErr(null);
+    const r = await crearRespaldoNube();
+    setCloudBusy(false);
+    if (r.ok) setCloudMsg(r.mensaje);
+    else setCloudErr(r.mensaje);
+  };
+
+  const restaurarNube = async () => {
+    if (
+      !window.confirm(
+        "Se reemplazarán los datos locales por el respaldo cifrado de la nube. ¿Continuar?"
+      )
+    )
+      return;
+    setCloudBusy(true);
+    setCloudMsg(null);
+    setCloudErr(null);
+    const r = await restaurarRespaldoNube();
+    setCloudBusy(false);
+    if (r.ok) {
+      setCloudMsg(r.mensaje);
+      window.location.reload();
+    } else {
+      setCloudErr(r.mensaje);
+    }
   };
 
   const confirmarEliminar = async () => {
@@ -605,6 +673,108 @@ function SettingsModal({
                 {theme === "dark" ? "Modo claro" : "Modo oscuro"}
               </Button>
             </div>
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Plan Pro
+            </h3>
+            {licencia ? (
+              <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                      <Crown className="h-4 w-4 text-amber-500" />
+                      Plan Pro activo
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-300">
+                      {licencia.email} · vigente hasta {licencia.expIso}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      desactivarPro();
+                      setLicencia(null);
+                      setCloudMsg(null);
+                    }}
+                    className="rounded-lg px-2 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                  >
+                    Desactivar
+                  </button>
+                </div>
+                <div className="mt-3 space-y-2 border-t border-emerald-500/20 pt-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="white"
+                      disabled={cloudBusy}
+                      onClick={() => void respaldarNube()}
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 ${cloudBusy ? "animate-spin" : ""}`}
+                      />
+                      Respaldo en la nube ahora
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="white"
+                      disabled={cloudBusy}
+                      onClick={() => void restaurarNube()}
+                    >
+                      <Upload className="h-4 w-4" />
+                      Restaurar desde la nube
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    {respaldoNubeVencido()
+                      ? "Tu último respaldo en la nube está vencido: respaldá ahora (o se hará solo en tu próxima apertura)."
+                      : `Respaldo en la nube al día (${new Date(
+                          getUltimoRespaldoNube() || 0
+                        ).toLocaleDateString()}). Se renueva solo, aprox. cada 7 días.`}
+                  </p>
+                  {cloudMsg && (
+                    <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+                      {cloudMsg}
+                    </p>
+                  )}
+                  {cloudErr && (
+                    <p className="rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
+                      {cloudErr}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <form
+                onSubmit={activarPro}
+                className="space-y-2.5 rounded-xl border border-zinc-200 p-3 dark:border-zinc-700"
+              >
+                <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
+                  Estás en el plan gratuito. Las funciones Pro incluyen
+                  informes PDF profesionales, recomendaciones IA y respaldos en
+                  la nube. Ingresá tu licencia para activarlas.
+                </p>
+                <Input
+                  value={cliKey}
+                  onChange={(e) => setCliKey(e.target.value)}
+                  placeholder="MNBG-…"
+                  autoComplete="off"
+                />
+                <Button type="submit" size="sm">
+                  <Crown className="h-4 w-4" /> Activar licencia
+                </Button>
+                {licErr && (
+                  <p className="rounded-lg bg-rose-500/10 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
+                    {licErr}
+                  </p>
+                )}
+                {licMsg && (
+                  <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+                    {licMsg}
+                  </p>
+                )}
+              </form>
+            )}
           </section>
 
           <section>
@@ -1003,6 +1173,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      <ProAutoRespaldo />
 
       {tourOpen && <Tour onClose={cerrarTour} />}
     </div>

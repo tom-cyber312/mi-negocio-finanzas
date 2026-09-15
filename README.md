@@ -25,6 +25,16 @@ gastos de un negocio pequeño. Hecho con **Next.js 16**, **React 19**,
   (margen bajo, stock estancado, publicidad con bajo retorno, flujo de caja
   negativo, etc.). Incluye un bloque "Listo para IA" que genera el contexto en
   texto plano para conectarlo después con un modelo de lenguaje.
+- **Plan Pro (licencia por clave)**: funciones premium activables con una clave
+  de licencia firmada (RSA-PSS) que verifica la app localmente:
+  - *Informe mensual profesional (PDF)*: portada + resumen, mejores
+    productos, gastos por categoría y métodos de pago.
+  - *Asistente IA*: conectá cualquier API compatible con OpenAI y pedile
+    recomendaciones sobre tus datos (la clave viaja cifrada; opcional
+    `IA_API_KEY` como clave por defecto en el servidor).
+  - *Copias de seguridad en la nube*: respaldo completo cifrado (AES-GCM con
+    tu contraseña) guardado en la misma sincronización de Supabase, con
+    restauración desde cualquier dispositivo y respaldo automático semanal.
 - **Seguridad**: login con contraseña (mín. 8 caracteres) cifrada con PBKDF2
   (250.000 iteraciones, clave derivada con AES-GCM vía WebCrypto) y guardada
   solo en el navegador. Sesión persistente 30 días.
@@ -113,6 +123,30 @@ vercel --prod # deploys siguientes (o conecta el repo en vercel.com)
 > desde el servidor. Configurá las variables de entorno en Vercel según
 > `.env.example`; sin ellas las pasarelas funcionan solo con credenciales
 > del navegador.
+
+## Licencias Pro (venta)
+
+El plan gratis cubre todas las funciones básicas. El **Plan Pro** se activa
+con una clave de licencia que se verifica localmente (RSA-PSS / SHA-256) contra
+la clave pública embebida en `src/lib/license.ts`, así que funciona incluso sin
+conexión:
+
+1. En tu máquina (una sola vez) generá el par de llaves:
+   ```bash
+   node scripts/generarLicencia.mjs
+   ```
+   Esto crea `scripts/license-key.pem` (clave **privada**, no la compartas:
+   está ignorada por git) y `scripts/license-pub.pem` (pública). La clave
+   pública (SPKI, base64) va en `PUB_SPKI_B64` de `src/lib/license.ts`.
+2. Para emitir una licencia a un cliente:
+   ```bash
+   node scripts/generarLicencia.mjs cliente@correo.com 12
+   ```
+   Imprime la clave `MNBG-…` y su vigencia (durante 12 meses).
+3. El cliente la ingresa en **Ajustes → Plan Pro → Activar licencia**.
+
+Las funciones Pro están detrás de `tienePro()` y del componente
+`ProModal` (Informe Pro, Asistente IA y respaldo en la nube).
 
 ## App iOS (Capacitor)
 

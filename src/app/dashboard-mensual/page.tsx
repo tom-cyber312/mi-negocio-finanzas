@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
+  Crown,
   Download,
   FileSpreadsheet,
   TrendingDown,
@@ -18,7 +19,14 @@ import {
   resumenMes,
 } from "@/lib/calc";
 import { ajustarValor, gastosPorPresupuesto, mesKeyDeFecha } from "@/lib/fiscal";
-import { exportarExcelMensual, exportarPDFMensual } from "@/lib/export";
+import {
+  exportarExcelMensual,
+  exportarPDFInformePro,
+  exportarPDFMensual,
+} from "@/lib/export";
+import { tienePro } from "@/lib/license";
+import { getCuentaActiva } from "@/lib/accounts";
+import ProModal from "@/components/ProModal";
 import {
   Badge,
   Button,
@@ -40,11 +48,13 @@ export default function DashboardMensualPage() {
   });
   const [hasManual, setHasManual] = useState(false);
   const [ajustado, setAjustado] = useState(false);
+  const [proOpen, setProOpen] = useState(false);
 
   const ventas = useLiveQuery(() => db.ventas.toArray(), []);
   const gastos = useLiveQuery(() => db.gastos.toArray(), []);
   const presupuestos = useLiveQuery(() => db.presupuestos.toArray(), []);
   const inflacion = useLiveQuery(() => db.inflacion.toArray(), []);
+  const productos = useLiveQuery(() => db.productos.toArray(), []);
 
   const { year, month } = sel;
 
@@ -151,8 +161,29 @@ export default function DashboardMensualPage() {
           >
             <FileSpreadsheet className="h-4 w-4" /> Excel
           </Button>
+          <Button
+            onClick={() => {
+              if (!data) return;
+              if (!tienePro()) return setProOpen(true);
+              exportarPDFInformePro(
+                year,
+                month,
+                data.mes.ventas,
+                data.mes.gastos,
+                data.mes.ingresos,
+                data.mes.egresos,
+                productos || [],
+                getCuentaActiva()?.nombre || "Mi Negocio"
+              );
+            }}
+            title="Informe mensual profesional (Plan Pro)"
+          >
+            <Crown className="h-4 w-4" /> Informe Pro
+          </Button>
         </div>
       </div>
+
+      <ProModal open={proOpen} onClose={() => setProOpen(false)} />
 
       {!data ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
