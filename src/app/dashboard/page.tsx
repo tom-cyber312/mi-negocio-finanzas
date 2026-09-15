@@ -28,6 +28,7 @@ import { generarRecomendaciones } from "@/lib/recommendations";
 import { ajustarValor } from "@/lib/fiscal";
 import { getFiscalConfig, getLimitesMonotributo } from "@/lib/config";
 import { Card, CardHeader, Skeleton, StatCard, Tip } from "@/components/ui";
+import AvisoImportMP from "@/components/AvisoImportMP";
 import {
   BarIngresosEgresos,
   HorizontalBestScale,
@@ -119,6 +120,7 @@ export default function DashboardPage() {
 
   return (
     <div>
+      <AvisoImportMP />
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-2xl">

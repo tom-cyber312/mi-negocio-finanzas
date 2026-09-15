@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { db, agregarVentaExterna } from "@/lib/db";
 import { getGateways, setGateways } from "@/lib/config";
+import { buscarCobrosMercadoPago } from "@/lib/autogateway";
 import type { GatewayConfig, TransaccionExterna } from "@/lib/types";
 import {
   SLOTS,
@@ -186,6 +187,33 @@ export default function IntegracionesPage() {
       activo = false;
     };
   }, []);
+
+  // Al abrir la página, si hay Mercado Pago activo, buscamos automáticamente
+  // los cobros nuevos para mostrarlos en la vista previa sin tocar nada.
+  const autoCheckRef = useRef(false);
+  useEffect(() => {
+    if (autoCheckRef.current || !ventas) return;
+    autoCheckRef.current = true;
+    let activo = true;
+    (async () => {
+      const res = await buscarCobrosMercadoPago();
+      if (!activo || !res.ok) return;
+      const ya = new Set(
+        (ventas || []).filter((v) => v.referencia).map((v) => v.referencia)
+      );
+      const nuevas = res.transacciones.filter((t) => !ya.has(t.externalId));
+      if (nuevas.length > 0) {
+        setPreview((p) =>
+          p
+            ? p
+            : { gateway: "Mercado Pago", transacciones: res.transacciones }
+        );
+      }
+    })();
+    return () => {
+      activo = false;
+    };
+  }, [ventas]);
 
   const yaImportados = useMemo(() => {
     const set = new Set<string>();

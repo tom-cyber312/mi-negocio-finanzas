@@ -33,7 +33,9 @@ gastos de un negocio pequeño. Hecho con **Next.js 16**, **React 19**,
 - **Integraciones**: importación de cobros de Mercado Pago / Stripe / PayPal.
   Las credenciales se guardan cifradas en el navegador o como variables de
   entorno del servidor (`MP_ACCESS_TOKEN`, `STRIPE_SECRET_KEY`,
-  `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`; ver `.env.example`).
+  `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`; ver `.env.example`). Si Mercado Pago
+  está activo y hay cobros sin importar, el Dashboard muestra un aviso con
+  botón para importarlos de un toque (búsqueda automática al abrir la app).
 - **Modo oscuro** conmemorativo de preferencia del sistema, diseño responsive.
 
 ## Datos
