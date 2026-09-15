@@ -174,24 +174,40 @@ function LoginForm({
   return (
     <form onSubmit={submit} className="w-full max-w-sm space-y-4">
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        Elegí tu negocio e ingresá su contraseña para desbloquear.
+        {cuentas.length > 0
+          ? "Elegí tu negocio e ingresá su contraseña para desbloquear."
+          : "Ingresá el correo y la contraseña de la cuenta que creaste antes para recuperarla en este dispositivo."}
       </p>
-      <Field label="Cuenta (negocio)">
-        <Select value={email} onChange={(e) => setEmail(e.target.value)}>
-          {cuentas.map((c) => (
-            <option key={c.id} value={c.email}>
-              {c.nombre} — {c.email}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      {cuentas.length > 0 ? (
+        <Field label="Cuenta (negocio)">
+          <Select value={email} onChange={(e) => setEmail(e.target.value)}>
+            {cuentas.map((c) => (
+              <option key={c.id} value={c.email}>
+                {c.nombre} — {c.email}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : (
+        <Field
+          label="Correo de tu cuenta"
+          hint="Si el negocio fue creado con sincronización, se descarga acá automáticamente."
+        >
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="nombre@gmail.com"
+            autoFocus
+          />
+        </Field>
+      )}
       <Field label="Contraseña">
         <Input
           type="password"
           value={pw}
           onChange={(e) => setPw(e.target.value)}
           placeholder="••••••••"
-          autoFocus
         />
       </Field>
       {err && (
@@ -265,18 +281,7 @@ function LoginScreen() {
         </div>
 
         {modo === "login" ? (
-          cuentas.length === 0 ? (
-            <div className="w-full max-w-sm space-y-3 rounded-xl border border-dashed border-zinc-300 p-5 text-center dark:border-zinc-700">
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Todavía no hay ninguna cuenta en este dispositivo.
-              </p>
-              <Button variant="white" onClick={() => setModo("crear")} className="w-full">
-                Crear mi primer negocio
-              </Button>
-            </div>
-          ) : (
-            <LoginForm emailInicial={cuentaActiva?.email || ""} cuentas={cuentas} />
-          )
+          <LoginForm emailInicial={cuentaActiva?.email || ""} cuentas={cuentas} />
         ) : (
           <CrearCuentaForm
             descripcion={
