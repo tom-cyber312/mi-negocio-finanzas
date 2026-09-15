@@ -54,12 +54,21 @@ export interface MarcaSync {
 // Registro de eliminaciones locales para la sincronización (tombstones).
 // Cada borrado de una fila con `uid` deja una marca; el motor de sync la usa
 // para propagar la baja a otros dispositivos sin "revivir" el registro.
+// La marca NO se escribe dentro del hook (ahí hay una transacción activa que
+// no incluye `sync_marcas`); se agenda al completarse la transacción.
+type TxMarca = { on?(event: string, fn: () => void): unknown };
 function registrarMarcaBorrado(
   tabla: "productos" | "ventas" | "gastos" | "presupuestos" | "facturas" | "inflacion",
-  uid: string | undefined
+  uid: string | undefined,
+  tx?: TxMarca
 ): void {
   if (!uid) return;
-  db.sync_marcas.add({ tabla, uid, ts: Date.now() }).catch(() => undefined);
+  const marca = { tabla, uid, ts: Date.now() };
+  const grabar = () => {
+    db.sync_marcas.add(marca).catch(() => undefined);
+  };
+  if (tx?.on) tx.on("complete", grabar);
+  else grabar();
 }
 
 [
@@ -73,16 +82,18 @@ function registrarMarcaBorrado(
   const t = tabla as typeof db.productos & { hook: unknown };
   const hook = (t.hook as {
     failing?: unknown;
-    deleting: { subscribe(fn: (pk: unknown, obj: { uid?: string }) => void): void };
+    deleting: {
+      subscribe(fn: (pk: unknown, obj: { uid?: string }, tx?: TxMarca) => void): void;
+    };
   }).deleting;
-  hook.subscribe((_pk, obj) => {
+  hook.subscribe((_pk, obj, tx) => {
     registrarMarcaBorrado((t.name as string) as
       | "productos"
       | "ventas"
       | "gastos"
       | "presupuestos"
       | "facturas"
-      | "inflacion", obj?.uid);
+      | "inflacion", obj?.uid, tx);
   });
 });
 

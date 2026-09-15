@@ -156,14 +156,15 @@ export async function sincronizar(cuentaId?: string): Promise<ResultadoSync | nu
       bajados += 1;
     }
 
-    // Fase 2: adoptar filas de la nube que no tenemos localmente
-    // (excepto las borradas localmente con fecha >= a la de la nube)
+    // Fase 2: adoptar filas de la nube que no tenemos localmente.
+    // Si existe una marca de borrado local (pendiente o ya propagada) el
+    // borrado gana: nunca re-adoptamos ese uid.
     for (const [uid, cloud] of mapa) {
       if (cloud.deleted) continue;
       if (uidsLocales.has(uid)) continue;
       const marcaTs = marcasLocal.get(`${tabla}|${uid}`);
+      if (marcaTs != null) continue;
       const cloudTs = Date.parse(cloud.updated_at);
-      if (marcaTs != null && marcaTs >= cloudTs) continue;
       await t.add({
         ...(cloud.payload as Record<string, unknown>),
         id: undefined,
@@ -171,21 +172,17 @@ export async function sincronizar(cuentaId?: string): Promise<ResultadoSync | nu
         updatedAt: cloudTs,
       });
       uidsLocales.add(uid);
-      if (marcaTs != null) {
-        marcasLocal.delete(`${tabla}|${uid}`);
-        marcasUsadas.push(`${tabla}|${uid}`);
-      }
       bajados += 1;
     }
 
-    // Fase 3: propagar eliminaciones locales (marcas) a la nube
+    // Fase 3: propagar eliminaciones locales (marcas) a la nube.
+    // El borrado gana aunque la copia en la nube sea más nueva, así un
+    // producto eliminado nunca vuelve a aparecer.
     const presente = new Set(uidsLocales);
     for (const [uid, cloud] of mapa) {
       if (cloud.deleted || presente.has(uid)) continue;
       const marcaTs = marcasLocal.get(`${tabla}|${uid}`);
       if (marcaTs == null) continue;
-      const cloudTs = Date.parse(cloud.updated_at);
-      if (marcaTs < cloudTs) continue;
       upserts.push({
         cuenta_id: cta,
         tabla,
@@ -197,17 +194,6 @@ export async function sincronizar(cuentaId?: string): Promise<ResultadoSync | nu
       marcasUsadas.push(`${tabla}|${uid}`);
       borrados += 1;
     }
-
-    // Limpiar marcas ya utilizadas
-    for (const k of marcasUsadas) {
-      const [tb, uid] = k.split("|") as [TablaSync, string];
-      await db.sync_marcas
-        .where("uid")
-        .equals(uid)
-        .filter((m: unknown) => (m as Marca).tabla === tb)
-        .delete();
-    }
-    marcasUsadas.length = 0;
   }
 
   for (let i = 0; i < upserts.length; i += 400) {
@@ -215,6 +201,18 @@ export async function sincronizar(cuentaId?: string): Promise<ResultadoSync | nu
       .from("registros")
       .upsert(upserts.slice(i, i + 400), { onConflict: "cuenta_id,tabla,registro_id" });
     if (error) throw new Error(`No se pudo escribir en la nube: ${error.message}`);
+  }
+
+  // Recién después de confirmar la escritura en la nube se consumen las
+  // marcas de borrado; si la escritura falla, quedan para re-intentar y el
+  // registro no "resucita" en el próximo sync.
+  for (const k of marcasUsadas) {
+    const [tb, uid] = k.split("|") as [TablaSync, string];
+    await db.sync_marcas
+      .where("uid")
+      .equals(uid)
+      .filter((m: unknown) => (m as Marca).tabla === tb)
+      .delete();
   }
 
   return { subidos, bajados, borrados };
